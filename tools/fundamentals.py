@@ -1,129 +1,107 @@
 """
-Tool: fundamental data
-Fetches company profile, valuation multiples, margins, and analyst data.
-No API key required — uses yfinance (Yahoo Finance).
+Tool: fundamental data via Financial Modeling Prep API
 """
 
-import yfinance as yf
-from curl_cffi import requests as curl_requests
-
-yf.set_tz_cache_location("/tmp")
-session = curl_requests.Session(impersonate="chrome")
+import os
+import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+from dotenv import load_dotenv
+
+load_dotenv()
+API_KEY = os.getenv("FMP_API_KEY")
+BASE = "https://financialmodelingprep.com/api/v3"
 
 
-def _safe_float(value, digits: int = 4) -> float | None:
-    """Safely cast yfinance values; return None on missing/NaN."""
+def _get(endpoint: str, params: dict = {}) -> dict | list:
+    params["apikey"] = API_KEY
+    r = requests.get(f"{BASE}/{endpoint}", params=params, timeout=10)
+    r.raise_for_status()
+    return r.json()
+
+
+def _safe(value, digits: int = 4) -> float | None:
     try:
         if value is None:
             return None
         f = float(value)
-        if f != f:  # NaN check
-            return None
-        return round(f, digits)
+        return None if f != f else round(f, digits)
     except (TypeError, ValueError):
         return None
 
 
-def _safe_int(value) -> int | None:
-    try:
-        if value is None:
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _fmt_large(value: int | None) -> str | None:
-    """Format large numbers as human-readable strings (e.g. 2.3T, 400B, 5M)."""
+def _fmt_large(value) -> str | None:
     if value is None:
         return None
-    abs_val = abs(value)
-    if abs_val >= 1e12:
-        return f"{value / 1e12:.2f}T"
-    if abs_val >= 1e9:
-        return f"{value / 1e9:.2f}B"
-    if abs_val >= 1e6:
-        return f"{value / 1e6:.2f}M"
-    return str(value)
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    abs_v = abs(v)
+    if abs_v >= 1e12:
+        return f"{v/1e12:.2f}T"
+    if abs_v >= 1e9:
+        return f"{v/1e9:.2f}B"
+    if abs_v >= 1e6:
+        return f"{v/1e6:.2f}M"
+    return str(int(v))
 
 
-# ── Main fetch ─────────────────────────────────────────────────────────────────
-
-@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
 def fetch_fundamentals(ticker: str) -> dict:
-    """
-    Return a structured dict with company fundamentals.
+    profile = _get(f"profile/{ticker.upper()}")
+    ratios = _get(f"ratios-ttm/{ticker.upper()}")
+    metrics = _get(f"key-metrics-ttm/{ticker.upper()}")
 
-    Args:
-        ticker: Stock symbol, e.g. "AAPL"
+    p = profile[0] if profile else {}
+    r = ratios[0] if ratios else {}
+    m = metrics[0] if metrics else {}
 
-    Returns:
-        dict with valuation, margins, growth, balance sheet, analyst data
-    """
-    tk = yf.Ticker(ticker.upper(), session=session)
-    info = tk.info
-
-    if not info or "symbol" not in info:
-        raise ValueError(f"No fundamental data found for '{ticker}'.")
-
-    market_cap_raw = _safe_int(info.get("marketCap"))
-    revenue_raw = _safe_int(info.get("totalRevenue"))
-    fcf_raw = _safe_int(info.get("freeCashflow"))
+    market_cap = _safe(p.get("mktCap"), 0)
+    revenue = _safe(m.get("revenuePerShareTTM"), 0)
+    fcf = _safe(m.get("freeCashFlowPerShareTTM"), 0)
 
     return {
         "ticker": ticker.upper(),
-        # Profile
-        "company_name": info.get("longName"),
-        "sector": info.get("sector"),
-        "industry": info.get("industry"),
-        "country": info.get("country"),
-        "employees": _safe_int(info.get("fullTimeEmployees")),
-        # Size
-        "market_cap": market_cap_raw,
-        "market_cap_fmt": _fmt_large(market_cap_raw),
-        "enterprise_value": _safe_int(info.get("enterpriseValue")),
-        # Valuation
-        "pe_trailing": _safe_float(info.get("trailingPE"), 2),
-        "pe_forward": _safe_float(info.get("forwardPE"), 2),
-        "peg_ratio": _safe_float(info.get("pegRatio"), 2),
-        "price_to_book": _safe_float(info.get("priceToBook"), 2),
-        "price_to_sales": _safe_float(info.get("priceToSalesTrailing12Months"), 2),
-        "ev_to_ebitda": _safe_float(info.get("enterpriseToEbitda"), 2),
-        "ev_to_revenue": _safe_float(info.get("enterpriseToRevenue"), 2),
-        # Income
-        "revenue_ttm": revenue_raw,
-        "revenue_ttm_fmt": _fmt_large(revenue_raw),
-        "revenue_growth_yoy": _safe_float(info.get("revenueGrowth")),
-        "earnings_growth_yoy": _safe_float(info.get("earningsGrowth")),
-        "gross_margin": _safe_float(info.get("grossMargins")),
-        "operating_margin": _safe_float(info.get("operatingMargins")),
-        "net_margin": _safe_float(info.get("profitMargins")),
-        "ebitda": _safe_int(info.get("ebitda")),
-        # Returns
-        "return_on_assets": _safe_float(info.get("returnOnAssets")),
-        "return_on_equity": _safe_float(info.get("returnOnEquity")),
-        # Cash & debt
-        "free_cash_flow": fcf_raw,
-        "free_cash_flow_fmt": _fmt_large(fcf_raw),
-        "total_cash": _safe_int(info.get("totalCash")),
-        "total_debt": _safe_int(info.get("totalDebt")),
-        "debt_to_equity": _safe_float(info.get("debtToEquity"), 2),
-        "current_ratio": _safe_float(info.get("currentRatio"), 2),
-        # Dividends & shares
-        "dividend_yield": _safe_float(info.get("dividendYield")),
-        "payout_ratio": _safe_float(info.get("payoutRatio")),
-        "shares_outstanding": _safe_int(info.get("sharesOutstanding")),
-        "float_shares": _safe_int(info.get("floatShares")),
-        "short_float_pct": _safe_float(info.get("shortPercentOfFloat")),
-        # Risk
-        "beta": _safe_float(info.get("beta"), 2),
-        # Analyst consensus
-        "analyst_target_mean": _safe_float(info.get("targetMeanPrice"), 2),
-        "analyst_target_low": _safe_float(info.get("targetLowPrice"), 2),
-        "analyst_target_high": _safe_float(info.get("targetHighPrice"), 2),
-        "analyst_recommendation": info.get("recommendationKey"),
-        "analyst_count": _safe_int(info.get("numberOfAnalystOpinions")),
-        # Description (trimmed for prompt budget)
-        "description": (info.get("longBusinessSummary") or "")[:600],
+        "company_name": p.get("companyName"),
+        "sector": p.get("sector"),
+        "industry": p.get("industry"),
+        "country": p.get("country"),
+        "employees": p.get("fullTimeEmployees"),
+        "market_cap": market_cap,
+        "market_cap_fmt": _fmt_large(market_cap),
+        "enterprise_value": _safe(m.get("enterpriseValueTTM"), 0),
+        "pe_trailing": _safe(r.get("peRatioTTM"), 2),
+        "pe_forward": _safe(p.get("pe"), 2),
+        "peg_ratio": _safe(r.get("pegRatioTTM"), 2),
+        "price_to_book": _safe(r.get("priceToBookRatioTTM"), 2),
+        "price_to_sales": _safe(r.get("priceToSalesRatioTTM"), 2),
+        "ev_to_ebitda": _safe(m.get("evToEbitdaTTM"), 2),
+        "ev_to_revenue": _safe(m.get("evToFreeCashFlowTTM"), 2),
+        "revenue_ttm": revenue,
+        "revenue_ttm_fmt": _fmt_large(revenue),
+        "revenue_growth_yoy": _safe(r.get("revenueGrowthTTM")),
+        "earnings_growth_yoy": _safe(r.get("epsgrowthTTM")),
+        "gross_margin": _safe(r.get("grossProfitMarginTTM")),
+        "operating_margin": _safe(r.get("operatingProfitMarginTTM")),
+        "net_margin": _safe(r.get("netProfitMarginTTM")),
+        "return_on_assets": _safe(r.get("returnOnAssetsTTM")),
+        "return_on_equity": _safe(r.get("returnOnEquityTTM")),
+        "free_cash_flow": fcf,
+        "free_cash_flow_fmt": _fmt_large(fcf),
+        "total_cash": None,
+        "total_debt": _safe(m.get("netDebtTTM"), 0),
+        "debt_to_equity": _safe(r.get("debtEquityRatioTTM"), 2),
+        "current_ratio": _safe(r.get("currentRatioTTM"), 2),
+        "dividend_yield": _safe(r.get("dividendYieldTTM")),
+        "payout_ratio": _safe(r.get("payoutRatioTTM")),
+        "shares_outstanding": None,
+        "float_shares": None,
+        "short_float_pct": None,
+        "beta": _safe(p.get("beta"), 2),
+        "analyst_target_mean": _safe(p.get("dcf"), 2),
+        "analyst_target_low": None,
+        "analyst_target_high": None,
+        "analyst_recommendation": p.get("recommendationKey"),
+        "analyst_count": None,
+        "description": (p.get("description") or "")[:600],
     }
