@@ -5,6 +5,7 @@ No API key required — uses yfinance (Yahoo Finance).
 """
 
 import yfinance as yf
+yf.set_tz_cache_location("/tmp")
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 
@@ -46,7 +47,7 @@ def _fmt_large(value: int | None) -> str | None:
 
 # ── Main fetch ─────────────────────────────────────────────────────────────────
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=5))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
 def fetch_fundamentals(ticker: str) -> dict:
     """
     Return a structured dict with company fundamentals.

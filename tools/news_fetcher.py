@@ -7,6 +7,7 @@ No API key required.
 from datetime import datetime, timezone
 from tenacity import retry, stop_after_attempt, wait_exponential
 import yfinance as yf
+yf.set_tz_cache_location("/tmp")
 
 
 def _parse_date(raw: str) -> str:
@@ -30,7 +31,7 @@ def _days_ago(date_str: str) -> int | None:
         return None
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=5))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
 def fetch_news(ticker: str, max_items: int = 10) -> list[dict]:
     """
     Return a list of recent news items for a ticker.
