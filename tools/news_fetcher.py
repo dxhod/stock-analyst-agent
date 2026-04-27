@@ -7,7 +7,10 @@ No API key required.
 from datetime import datetime, timezone
 from tenacity import retry, stop_after_attempt, wait_exponential
 import yfinance as yf
+from curl_cffi import requests as curl_requests
+
 yf.set_tz_cache_location("/tmp")
+session = curl_requests.Session(impersonate="chrome")
 
 
 def _parse_date(raw: str) -> str:
@@ -43,7 +46,7 @@ def fetch_news(ticker: str, max_items: int = 10) -> list[dict]:
     Returns:
         List of dicts with keys: title, date, days_ago, source, summary, url
     """
-    tk = yf.Ticker(ticker.upper())
+    tk = yf.Ticker(ticker.upper(), session=session)
     raw_news = tk.news or []
 
     results = []

@@ -5,10 +5,12 @@ No API key required — uses yfinance (Yahoo Finance).
 """
 
 import yfinance as yf
-yf.set_tz_cache_location("/tmp")
+from curl_cffi import requests as curl_requests
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+yf.set_tz_cache_location("/tmp")
+session = curl_requests.Session(impersonate="chrome")
 
 # ── Indicator helpers ──────────────────────────────────────────────────────────
 
@@ -57,7 +59,7 @@ def fetch_price_data(ticker: str, period: str = "6mo") -> dict:
     Returns:
         dict with keys: ticker, price metrics, SMA/RSI/ATR, volume stats
     """
-    tk = yf.Ticker(ticker.upper())
+    tk = yf.Ticker(ticker.upper(), session=session)
     hist = tk.history(period=period)
 
     if hist.empty:

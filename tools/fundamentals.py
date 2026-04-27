@@ -5,7 +5,10 @@ No API key required — uses yfinance (Yahoo Finance).
 """
 
 import yfinance as yf
+from curl_cffi import requests as curl_requests
+
 yf.set_tz_cache_location("/tmp")
+session = curl_requests.Session(impersonate="chrome")
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 
@@ -58,7 +61,7 @@ def fetch_fundamentals(ticker: str) -> dict:
     Returns:
         dict with valuation, margins, growth, balance sheet, analyst data
     """
-    tk = yf.Ticker(ticker.upper())
+    tk = yf.Ticker(ticker.upper(), session=session)
     info = tk.info
 
     if not info or "symbol" not in info:
