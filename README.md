@@ -81,7 +81,7 @@ streamlit run app.py
 ### Option 2 — Local
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/stock-analyst-agent.git
+git clone https://github.com/dxhod/stock-analyst-agent.git
 cd stock-analyst-agent
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
