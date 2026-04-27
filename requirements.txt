@@ -1,0 +1,23 @@
+# LLM & Agent framework
+langgraph>=0.2.0
+langchain-groq>=0.1.0
+langchain-core>=0.2.0
+
+# Data
+yfinance>=0.2.40
+pandas>=2.0.0
+numpy>=1.26.0
+
+# Interface
+streamlit>=1.35.0
+rich>=13.0.0
+
+# Reliability
+tenacity>=8.2.0
+python-dotenv>=1.0.0
+
+# Observability (optional but recommended for portfolio)
+langfuse>=2.0.0
+
+# Output
+reportlab>=4.0.0
