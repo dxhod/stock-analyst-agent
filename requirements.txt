@@ -23,3 +23,4 @@ langfuse>=2.0.0
 reportlab>=4.0.0
 curl_cffi>=0.7.0
 requests>=2.31.0
+requests>=2.31.0
