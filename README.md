@@ -8,7 +8,7 @@
 
 An agentic stock analysis pipeline built with **LangGraph** that autonomously fetches market data, runs fundamental and technical analysis, and produces a structured 9-section investment report — all at zero API cost.
 
-> **Live demo →** [Open in GitHub Codespaces](#quick-start)
+> **Live demo →** [stock-analyst-agent.streamlit.app](https://stock-analyst-agent.streamlit.app)
 
 ---
 
