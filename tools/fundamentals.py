@@ -1,22 +1,13 @@
 """
-Tool: fundamental data via Financial Modeling Prep API
+Tool: fundamental data via yfinance
 """
 
-import os
-import requests
+import yfinance as yf
+from curl_cffi import requests as curl_requests
 from tenacity import retry, stop_after_attempt, wait_exponential
-from dotenv import load_dotenv
 
-load_dotenv()
-API_KEY = os.getenv("FMP_API_KEY")
-BASE = "https://financialmodelingprep.com/api/v3"
-
-
-def _get(endpoint: str, params: dict = {}) -> dict | list:
-    params["apikey"] = API_KEY
-    r = requests.get(f"{BASE}/{endpoint}", params=params, timeout=10)
-    r.raise_for_status()
-    return r.json()
+yf.set_tz_cache_location("/tmp")
+session = curl_requests.Session(impersonate="chrome")
 
 
 def _safe(value, digits: int = 4) -> float | None:
@@ -46,62 +37,60 @@ def _fmt_large(value) -> str | None:
     return str(int(v))
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=10))
+@retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
 def fetch_fundamentals(ticker: str) -> dict:
-    profile = _get(f"profile/{ticker.upper()}")
-    ratios = _get(f"ratios-ttm/{ticker.upper()}")
-    metrics = _get(f"key-metrics-ttm/{ticker.upper()}")
+    tk = yf.Ticker(ticker.upper(), session=session)
+    info = tk.info
 
-    p = profile[0] if profile else {}
-    r = ratios[0] if ratios else {}
-    m = metrics[0] if metrics else {}
+    if not info or "symbol" not in info:
+        raise ValueError(f"No fundamental data for '{ticker}'")
 
-    market_cap = _safe(p.get("mktCap"), 0)
-    revenue = _safe(m.get("revenuePerShareTTM"), 0)
-    fcf = _safe(m.get("freeCashFlowPerShareTTM"), 0)
+    market_cap = _safe(info.get("marketCap"), 0)
+    revenue = _safe(info.get("totalRevenue"), 0)
+    fcf = _safe(info.get("freeCashflow"), 0)
 
     return {
         "ticker": ticker.upper(),
-        "company_name": p.get("companyName"),
-        "sector": p.get("sector"),
-        "industry": p.get("industry"),
-        "country": p.get("country"),
-        "employees": p.get("fullTimeEmployees"),
+        "company_name": info.get("longName"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "country": info.get("country"),
+        "employees": info.get("fullTimeEmployees"),
         "market_cap": market_cap,
         "market_cap_fmt": _fmt_large(market_cap),
-        "enterprise_value": _safe(m.get("enterpriseValueTTM"), 0),
-        "pe_trailing": _safe(r.get("peRatioTTM"), 2),
-        "pe_forward": _safe(p.get("pe"), 2),
-        "peg_ratio": _safe(r.get("pegRatioTTM"), 2),
-        "price_to_book": _safe(r.get("priceToBookRatioTTM"), 2),
-        "price_to_sales": _safe(r.get("priceToSalesRatioTTM"), 2),
-        "ev_to_ebitda": _safe(m.get("evToEbitdaTTM"), 2),
-        "ev_to_revenue": _safe(m.get("evToFreeCashFlowTTM"), 2),
+        "enterprise_value": _safe(info.get("enterpriseValue"), 0),
+        "pe_trailing": _safe(info.get("trailingPE"), 2),
+        "pe_forward": _safe(info.get("forwardPE"), 2),
+        "peg_ratio": _safe(info.get("pegRatio"), 2),
+        "price_to_book": _safe(info.get("priceToBook"), 2),
+        "price_to_sales": _safe(info.get("priceToSalesTrailing12Months"), 2),
+        "ev_to_ebitda": _safe(info.get("enterpriseToEbitda"), 2),
+        "ev_to_revenue": _safe(info.get("enterpriseToRevenue"), 2),
         "revenue_ttm": revenue,
         "revenue_ttm_fmt": _fmt_large(revenue),
-        "revenue_growth_yoy": _safe(r.get("revenueGrowthTTM")),
-        "earnings_growth_yoy": _safe(r.get("epsgrowthTTM")),
-        "gross_margin": _safe(r.get("grossProfitMarginTTM")),
-        "operating_margin": _safe(r.get("operatingProfitMarginTTM")),
-        "net_margin": _safe(r.get("netProfitMarginTTM")),
-        "return_on_assets": _safe(r.get("returnOnAssetsTTM")),
-        "return_on_equity": _safe(r.get("returnOnEquityTTM")),
+        "revenue_growth_yoy": _safe(info.get("revenueGrowth")),
+        "earnings_growth_yoy": _safe(info.get("earningsGrowth")),
+        "gross_margin": _safe(info.get("grossMargins")),
+        "operating_margin": _safe(info.get("operatingMargins")),
+        "net_margin": _safe(info.get("profitMargins")),
+        "return_on_assets": _safe(info.get("returnOnAssets")),
+        "return_on_equity": _safe(info.get("returnOnEquity")),
         "free_cash_flow": fcf,
         "free_cash_flow_fmt": _fmt_large(fcf),
-        "total_cash": None,
-        "total_debt": _safe(m.get("netDebtTTM"), 0),
-        "debt_to_equity": _safe(r.get("debtEquityRatioTTM"), 2),
-        "current_ratio": _safe(r.get("currentRatioTTM"), 2),
-        "dividend_yield": _safe(r.get("dividendYieldTTM")),
-        "payout_ratio": _safe(r.get("payoutRatioTTM")),
-        "shares_outstanding": None,
-        "float_shares": None,
-        "short_float_pct": None,
-        "beta": _safe(p.get("beta"), 2),
-        "analyst_target_mean": _safe(p.get("dcf"), 2),
-        "analyst_target_low": None,
-        "analyst_target_high": None,
-        "analyst_recommendation": p.get("recommendationKey"),
-        "analyst_count": None,
-        "description": (p.get("description") or "")[:600],
+        "total_cash": _safe(info.get("totalCash"), 0),
+        "total_debt": _safe(info.get("totalDebt"), 0),
+        "debt_to_equity": _safe(info.get("debtToEquity"), 2),
+        "current_ratio": _safe(info.get("currentRatio"), 2),
+        "dividend_yield": _safe(info.get("dividendYield")),
+        "payout_ratio": _safe(info.get("payoutRatio")),
+        "shares_outstanding": _safe(info.get("sharesOutstanding"), 0),
+        "float_shares": _safe(info.get("floatShares"), 0),
+        "short_float_pct": _safe(info.get("shortPercentOfFloat")),
+        "beta": _safe(info.get("beta"), 2),
+        "analyst_target_mean": _safe(info.get("targetMeanPrice"), 2),
+        "analyst_target_low": _safe(info.get("targetLowPrice"), 2),
+        "analyst_target_high": _safe(info.get("targetHighPrice"), 2),
+        "analyst_recommendation": info.get("recommendationKey"),
+        "analyst_count": info.get("numberOfAnalystOpinions"),
+        "description": (info.get("longBusinessSummary") or "")[:600],
     }
