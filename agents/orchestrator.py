@@ -8,6 +8,9 @@ import os
 
 load_dotenv()
 
+def run_analysis(state: AgentState) -> AgentState:
+    if state.get("error"):
+        return state
 llm = ChatGroq(
     model="llama-3.3-70b-versatile",
     api_key=os.getenv("GROQ_API_KEY"),
@@ -39,6 +42,11 @@ def run_analysis(state: AgentState) -> AgentState:
     news_text = news_to_text(state["news"])
 
     prompt = build_prompt(p, f, news_text)
+    print("\n" + "="*60)
+    print("PROMPT SENT TO LLM:")
+    print("="*60)
+    print(prompt)
+    print("="*60 + "\n")
 
     response = llm.invoke(prompt)
     return {**state, "analysis": response.content}
