@@ -41,7 +41,7 @@ def run_analysis(state: AgentState) -> AgentState:
     f = state["fundamentals"]
     news_text = news_to_text(state["news"])
 
-    prompt = build_prompt(p, f, news_text)
+    prompt = build_prompt(p, f, news_text, state.get("language", "English"))
     print("\n" + "="*60)
     print("PROMPT SENT TO LLM:")
     print("="*60)

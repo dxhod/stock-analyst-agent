@@ -2,8 +2,8 @@
 Analysis prompt. Edit this file to change the report structure.
 """
 
-def build_prompt(p: dict, f: dict, news_text: str) -> str:
-    return f"""You are an expert stock analyst. Analyze {p['ticker']} and produce a structured investment report.
+def build_prompt(p: dict, f: dict, news_text: str, language: str = "English") -> str:
+    return f"""You are an expert stock analyst. Analyze {p['ticker']} and produce a structured investment report. Write the entire report in {language}.
 Be specific, data-driven, and direct. Avoid generic statements.
 
 ## PRICE DATA

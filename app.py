@@ -12,7 +12,7 @@ st.caption("Powered by LangGraph · Groq · yfinance")
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 
-col1, col2 = st.columns([3, 1])
+col1, col2, col3 = st.columns([3, 2, 1])
 with col1:
     ticker = st.text_input(
         "Ticker symbol",
@@ -20,6 +20,12 @@ with col1:
         label_visibility="collapsed",
     )
 with col2:
+    language = st.selectbox(
+        "Language",
+        ["English", "Українська", "Русский", "Deutsch"],
+        label_visibility="collapsed",
+    )
+with col3:
     run = st.button("Analyze", type="primary", use_container_width=True)
 
 # ── Run ────────────────────────────────────────────────────────────────────────
@@ -30,7 +36,12 @@ if run and ticker:
     with st.status(f"Fetching data for {ticker}...", expanded=True) as status:
         st.write("📡 Pulling price data, fundamentals, news...")
 
-        state = agent.invoke({"ticker": ticker, "analysis": "", "error": None})
+        state = agent.invoke({
+    "ticker": ticker,
+    "language": language,
+    "analysis": "",
+    "error": None
+})
 
         if state.get("error"):
             status.update(label="Error", state="error")
