@@ -10,6 +10,8 @@ An agentic stock analysis pipeline built with **LangGraph** that autonomously fe
 
 > **Live demo →** [stock-analyst-agent-production.up.railway.app](https://stock-analyst-agent-production.up.railway.app)
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/dxhod/Stock_analyzer)
+
 ---
 
 ## How it works
