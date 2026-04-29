@@ -1,5 +1,8 @@
 import streamlit as st
-from agents import agent
+from langchain_core.callbacks import BaseCallbackHandler
+
+from agents import agent, reset_stream_callback, set_stream_callback
+from agents.cache import CACHE_TTL, get_valid_cached_analysis, now_utc
 
 st.set_page_config(
     page_title="Stock Analyst Agent",
@@ -8,80 +11,125 @@ st.set_page_config(
 )
 
 st.title("📈 Stock Analyst Agent")
-st.caption("Powered by LangGraph · Groq · yfinance")
+st.caption("Multi-agent workflow powered by LangGraph, Groq, and yfinance")
 
-# ── Input ──────────────────────────────────────────────────────────────────────
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []
+if "conversation_updated_at" not in st.session_state:
+    st.session_state.conversation_updated_at = None
+if "analysis_cache" not in st.session_state:
+    st.session_state.analysis_cache = None
 
-col1, col2, col3 = st.columns([3, 2, 1])
-with col1:
-    ticker = st.text_input(
-        "Ticker symbol",
-        placeholder="AAPL, NVDA, TSLA...",
-        label_visibility="collapsed",
-    )
-with col2:
-    language = st.selectbox(
-        "Language",
-        ["English", "Українська", "Русский", "Deutsch"],
-        label_visibility="collapsed",
-    )
-with col3:
-    run = st.button("Analyze", type="primary", use_container_width=True)
+conversation_updated_at = st.session_state.conversation_updated_at
+if conversation_updated_at and now_utc() - conversation_updated_at > CACHE_TTL:
+    st.session_state.conversation = []
+    st.session_state.conversation_updated_at = None
+    st.session_state.analysis_cache = None
 
-# ── Run ────────────────────────────────────────────────────────────────────────
+valid_cache = get_valid_cached_analysis(st.session_state.analysis_cache)
+if not valid_cache:
+    st.session_state.analysis_cache = None
 
-if run and ticker:
-    ticker = ticker.strip().upper()
 
-    with st.status(f"Fetching data for {ticker}...", expanded=True) as status:
-        st.write("📡 Pulling price data, fundamentals, news...")
+class StreamlitTokenCallback(BaseCallbackHandler):
+    def __init__(self, placeholder):
+        self.placeholder = placeholder
+        self.tokens = []
 
-        state = agent.invoke({
-    "ticker": ticker,
-    "language": language,
-    "analysis": "",
-    "error": None
-})
+    def on_llm_new_token(self, token: str, **kwargs):
+        self.tokens.append(token)
+        self.placeholder.markdown("".join(self.tokens) + "▌")
+
+    def finish(self, final_text: str):
+        self.placeholder.markdown(final_text)
+
+
+def render_conversation(assistant_placeholder=None):
+    st.divider()
+    st.subheader("Conversation")
+
+    if assistant_placeholder is not None:
+        previous_messages = st.session_state.conversation[:-1]
+        latest_user_message = st.session_state.conversation[-1]
+
+        if previous_messages:
+            with st.container(height=180, border=True):
+                for message in previous_messages:
+                    role = "user" if message["role"] == "user" else "assistant"
+                    with st.chat_message(role):
+                        st.markdown(message["content"])
+
+        with st.container(border=True):
+            with st.chat_message("user"):
+                st.markdown(latest_user_message["content"])
+            with st.chat_message("assistant"):
+                with st.container(height=260, border=False):
+                    return st.empty()
+
+        return None
+
+    with st.container(height=520, border=True):
+        for message in st.session_state.conversation:
+            role = "user" if message["role"] == "user" else "assistant"
+            with st.chat_message(role):
+                st.markdown(message["content"])
+
+    return None
+
+with st.form("query_form", clear_on_submit=True):
+    col1, col2 = st.columns([6, 1])
+    with col1:
+        user_query = st.text_input(
+            "Ask about a stock",
+            placeholder="Analyze Tesla stock, compare NVDA risks, what is the bull case?",
+            label_visibility="collapsed",
+        )
+    with col2:
+        run = st.form_submit_button("Ask", type="primary", use_container_width=True)
+
+if valid_cache:
+    st.caption(f"Active analysis: {valid_cache.get('ticker')}")
+
+query = user_query.strip()
+conversation_rendered = False
+
+if run and query:
+    prior_conversation = list(st.session_state.conversation)
+    st.session_state.conversation.append({"role": "user", "content": query})
+    assistant_placeholder = render_conversation(assistant_placeholder=True)
+    conversation_rendered = True
+
+    stream_callback = StreamlitTokenCallback(assistant_placeholder)
+    previous_callback = set_stream_callback(stream_callback)
+
+    with st.status("Analyzing request...", expanded=True) as status:
+        try:
+            state = agent.invoke(
+                {
+                    "user_query": query,
+                    "conversation": prior_conversation,
+                    "cached_analysis": st.session_state.analysis_cache,
+                    "analysis": "",
+                    "error": None,
+                }
+            )
+        finally:
+            reset_stream_callback(previous_callback)
 
         if state.get("error"):
             status.update(label="Error", state="error")
             st.error(state["error"])
             st.stop()
 
-        status.update(label="Data fetched — running analysis...", state="running")
-        st.write("🤖 LLM analyzing...")
         status.update(label="Done", state="complete", expanded=False)
 
-    # ── Metrics row ────────────────────────────────────────────────────────────
-    p = state["price_data"]
-    f = state["fundamentals"]
+    st.session_state.analysis_cache = state.get("cached_analysis")
+    stream_callback.finish(state["analysis"])
+    st.session_state.conversation.append({"role": "assistant", "content": state["analysis"]})
+    st.session_state.conversation_updated_at = now_utc()
 
-    st.divider()
+elif run:
+    st.warning("Ask a question or enter a ticker/company name first.")
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Price", f"${p['current_price']}", f"{p['change_pct']:+.2f}%")
-    m2.metric("Market Cap", f['market_cap_fmt'])
-    m3.metric("P/E (fwd)", f['pe_forward'])
-    m4.metric("RSI-14", p['rsi_14'])
-    m5.metric(
-        "Analyst",
-        (f['analyst_recommendation'] or "—").upper(),
-        f"n={f['analyst_count']}",
-    )
-
-    st.divider()
-
-    # ── Analysis output ────────────────────────────────────────────────────────
-    st.markdown(state["analysis"])
-
-    # ── Download ───────────────────────────────────────────────────────────────
-    st.divider()
-    st.download_button(
-        label="⬇ Download report (Markdown)",
-        data=state["analysis"],
-        file_name=f"{ticker}_analysis.md",
-        mime="text/markdown",
-    )
-
-elif run and not ticker:
-    st.warning("Enter a ticker symbol first.")
+if st.session_state.conversation and not conversation_rendered:
+    render_conversation()
