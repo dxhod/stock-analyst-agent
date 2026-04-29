@@ -19,37 +19,37 @@ def _language_rule(language: str) -> str:
 
 def _summary_sections(language: str) -> str:
     normalized = language.lower()
-    if "рус" in normalized:
-        return """### 1. Главный вывод
-### 2. Техническая картина
-### 3. Фундаментальный обзор
-### 4. Катализаторы и новости
-### 5. Бычий сценарий
-### 6. Медвежий сценарий
-### 7. Карта сценариев
-| Сценарий | Триггер | Целевая цена | Вероятность |
+    if "\u0440\u0443\u0441" in normalized:
+        return """### 1. \u0413\u043b\u0430\u0432\u043d\u044b\u0439 \u0432\u044b\u0432\u043e\u0434
+### 2. \u0422\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u043a\u0430\u0440\u0442\u0438\u043d\u0430
+### 3. \u0424\u0443\u043d\u0434\u0430\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u044b\u0439 \u043e\u0431\u0437\u043e\u0440
+### 4. \u041a\u0430\u0442\u0430\u043b\u0438\u0437\u0430\u0442\u043e\u0440\u044b \u0438 \u043d\u043e\u0432\u043e\u0441\u0442\u0438
+### 5. \u0411\u044b\u0447\u0438\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0439
+### 6. \u041c\u0435\u0434\u0432\u0435\u0436\u0438\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0439
+### 7. \u041a\u0430\u0440\u0442\u0430 \u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0435\u0432
+| \u0421\u0446\u0435\u043d\u0430\u0440\u0438\u0439 | \u0422\u0440\u0438\u0433\u0433\u0435\u0440 | \u0426\u0435\u043b\u0435\u0432\u0430\u044f \u0446\u0435\u043d\u0430 | \u0412\u0435\u0440\u043e\u044f\u0442\u043d\u043e\u0441\u0442\u044c |
 |----------|---------|--------------|-------------|
-| Бычий    |         |              |             |
-| Базовый  |         |              |             |
-| Медвежий |         |              |             |
-### 8. Торговые идеи
-### 9. Вердикт"""
+| \u0411\u044b\u0447\u0438\u0439    |         |              |             |
+| \u0411\u0430\u0437\u043e\u0432\u044b\u0439  |         |              |             |
+| \u041c\u0435\u0434\u0432\u0435\u0436\u0438\u0439 |         |              |             |
+### 8. \u0422\u043e\u0440\u0433\u043e\u0432\u044b\u0435 \u0438\u0434\u0435\u0438
+### 9. \u0412\u0435\u0440\u0434\u0438\u043a\u0442"""
 
-    if "укра" in normalized:
-        return """### 1. Головний висновок
-### 2. Технічна картина
-### 3. Фундаментальний огляд
-### 4. Каталізатори та новини
-### 5. Бичачий сценарій
-### 6. Ведмежий сценарій
-### 7. Карта сценаріїв
-| Сценарій | Тригер | Цільова ціна | Ймовірність |
+    if "\u0443\u043a\u0440\u0430" in normalized:
+        return """### 1. \u0413\u043e\u043b\u043e\u0432\u043d\u0438\u0439 \u0432\u0438\u0441\u043d\u043e\u0432\u043e\u043a
+### 2. \u0422\u0435\u0445\u043d\u0456\u0447\u043d\u0430 \u043a\u0430\u0440\u0442\u0438\u043d\u0430
+### 3. \u0424\u0443\u043d\u0434\u0430\u043c\u0435\u043d\u0442\u0430\u043b\u044c\u043d\u0438\u0439 \u043e\u0433\u043b\u044f\u0434
+### 4. \u041a\u0430\u0442\u0430\u043b\u0456\u0437\u0430\u0442\u043e\u0440\u0438 \u0442\u0430 \u043d\u043e\u0432\u0438\u043d\u0438
+### 5. \u0411\u0438\u0447\u0430\u0447\u0438\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0456\u0439
+### 6. \u0412\u0435\u0434\u043c\u0435\u0436\u0438\u0439 \u0441\u0446\u0435\u043d\u0430\u0440\u0456\u0439
+### 7. \u041a\u0430\u0440\u0442\u0430 \u0441\u0446\u0435\u043d\u0430\u0440\u0456\u0457\u0432
+| \u0421\u0446\u0435\u043d\u0430\u0440\u0456\u0439 | \u0422\u0440\u0438\u0433\u0435\u0440 | \u0426\u0456\u043b\u044c\u043e\u0432\u0430 \u0446\u0456\u043d\u0430 | \u0419\u043c\u043e\u0432\u0456\u0440\u043d\u0456\u0441\u0442\u044c |
 |----------|--------|--------------|-------------|
-| Бичачий  |        |              |             |
-| Базовий  |        |              |             |
-| Ведмежий |        |              |             |
-### 8. Торгові ідеї
-### 9. Вердикт"""
+| \u0411\u0438\u0447\u0430\u0447\u0438\u0439  |        |              |             |
+| \u0411\u0430\u0437\u043e\u0432\u0438\u0439  |        |              |             |
+| \u0412\u0435\u0434\u043c\u0435\u0436\u0438\u0439 |        |              |             |
+### 8. \u0422\u043e\u0440\u0433\u043e\u0432\u0456 \u0456\u0434\u0435\u0457
+### 9. \u0412\u0435\u0440\u0434\u0438\u043a\u0442"""
 
     return """### 1. Edge Read
 ### 2. Technical Picture
@@ -88,10 +88,10 @@ Rules:
 - Resolve well-known company names to US tickers when obvious, for example Tesla -> TSLA, Apple -> AAPL.
 - The ticker field must contain only the ticker symbol, never the whole user query.
 - For "Analyze Apple stock", return ticker "AAPL", not "ANALYZE APPLE STOCK".
-- Set language to the natural language used by the user, for example English, Русский, Українська, Deutsch, Español, Français.
+- Set language to the natural language used by the user, for example English, Russian, Ukrainian, Deutsch, Espanol, Francais.
 - If the user mixes languages, choose the dominant language of the request.
 - If there is no stock/company intent, set route to "unknown".
-- Return only valid JSON. No markdown.
+- Return exactly one valid JSON object. No markdown, no explanations, no text before or after JSON.
 
 JSON schema:
 {{
@@ -104,7 +104,7 @@ JSON schema:
 
 
 def build_technical_prompt(price_data: dict, language: str) -> str:
-    return f"""You are a technical-analysis agent. Write the entire answer in {language}, including headings.
+    return f"""You are a technical-analysis agent.
 {_language_rule(language)}
 
 Use only this price dataset:
@@ -116,7 +116,7 @@ Be specific and avoid generic market commentary.
 
 
 def build_fundamental_prompt(fundamentals: dict, language: str) -> str:
-    return f"""You are a fundamental-analysis agent. Write the entire answer in {language}, including headings.
+    return f"""You are a fundamental-analysis agent.
 {_language_rule(language)}
 
 Use only this fundamentals dataset:
@@ -128,7 +128,7 @@ Be specific and data-driven.
 
 
 def build_news_prompt(ticker: str, news_text: str, language: str) -> str:
-    return f"""You are a market-news agent. Write the entire answer in {language}, including headings.
+    return f"""You are a market-news agent.
 {_language_rule(language)}
 
 Ticker: {ticker}
@@ -148,7 +148,7 @@ def build_summary_prompt(
     news_analysis: str,
     language: str,
 ) -> str:
-    return f"""You are the lead portfolio analyst. Write the entire answer in {language}, including headings and table labels.
+    return f"""You are the lead portfolio analyst.
 {_language_rule(language)}
 
 User request:
@@ -172,6 +172,7 @@ Required sections:
 {_summary_sections(language)}
 
 Be specific, practical, and do not repeat the agents verbatim.
+Do not offer to run a fresh analysis. This response is already the current analysis.
 """
 
 
@@ -181,7 +182,7 @@ def build_follow_up_prompt(
     conversation: list[dict[str, str]],
     language: str,
 ) -> str:
-    return f"""You are a stock-analysis assistant continuing an existing conversation. Write the entire answer in {language}.
+    return f"""You are a stock-analysis assistant continuing an existing conversation.
 {_language_rule(language)}
 
 User question:
@@ -194,5 +195,5 @@ Conversation:
 {_json(conversation[-8:])}
 
 Answer naturally and directly. Do not mention cached analysis, stored context, previous analysis, or internal agent outputs.
-If the user asks for fresh or real-time data, say that you can run a fresh analysis.
+Do not offer to run a fresh analysis. Use the available workflow context to answer the question.
 """

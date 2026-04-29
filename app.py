@@ -44,29 +44,9 @@ class StreamlitTokenCallback(BaseCallbackHandler):
         self.placeholder.markdown(final_text)
 
 
-def render_conversation(assistant_placeholder=None):
+def render_conversation(streaming: bool = False):
     st.divider()
     st.subheader("Conversation")
-
-    if assistant_placeholder is not None:
-        previous_messages = st.session_state.conversation[:-1]
-        latest_user_message = st.session_state.conversation[-1]
-
-        if previous_messages:
-            with st.container(height=180, border=True):
-                for message in previous_messages:
-                    role = "user" if message["role"] == "user" else "assistant"
-                    with st.chat_message(role):
-                        st.markdown(message["content"])
-
-        with st.container(border=True):
-            with st.chat_message("user"):
-                st.markdown(latest_user_message["content"])
-            with st.chat_message("assistant"):
-                with st.container(height=260, border=False):
-                    return st.empty()
-
-        return None
 
     with st.container(height=520, border=True):
         for message in st.session_state.conversation:
@@ -74,7 +54,12 @@ def render_conversation(assistant_placeholder=None):
             with st.chat_message(role):
                 st.markdown(message["content"])
 
+        if streaming:
+            with st.chat_message("assistant"):
+                return st.empty()
+
     return None
+
 
 with st.form("query_form", clear_on_submit=True):
     col1, col2 = st.columns([6, 1])
@@ -96,7 +81,7 @@ conversation_rendered = False
 if run and query:
     prior_conversation = list(st.session_state.conversation)
     st.session_state.conversation.append({"role": "user", "content": query})
-    assistant_placeholder = render_conversation(assistant_placeholder=True)
+    assistant_placeholder = render_conversation(streaming=True)
     conversation_rendered = True
 
     stream_callback = StreamlitTokenCallback(assistant_placeholder)

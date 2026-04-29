@@ -2,6 +2,7 @@ from typing import Any, TypedDict
 
 
 class AgentState(TypedDict, total=False):
+    run_id: str
     user_query: str
     ticker: str
     language: str
