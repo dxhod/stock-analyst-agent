@@ -40,6 +40,16 @@ def reset_stream_callback(callback):
 DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_INTENT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_SUMMARY_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_SUMMARY_FALLBACK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+
+def _env(name: str, default: str) -> str:
+    return os.getenv(name, default).strip()
+
+
+def _is_rate_limit_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return "rate_limit" in text or "rate limit" in text or "429" in text
 
 
 def _invoke_text(
@@ -55,7 +65,7 @@ def _invoke_text(
             "GROQ_API_KEY is missing. Create a .env file from .env.example and add your Groq API key."
         )
 
-    selected_model = model or os.getenv("GROQ_MODEL", DEFAULT_MODEL)
+    selected_model = model or _env("GROQ_MODEL", DEFAULT_MODEL)
     llm = ChatGroq(
         model=selected_model,
         api_key=api_key,
@@ -104,7 +114,7 @@ def validate_intent(state: AgentState) -> AgentState:
     )
 
     try:
-        intent_model = os.getenv("GROQ_INTENT_MODEL", DEFAULT_INTENT_MODEL)
+        intent_model = _env("GROQ_INTENT_MODEL", DEFAULT_INTENT_MODEL)
         intent = _parse_json(
             _invoke_text(prompt, model=intent_model, agent_name="intent_validator", state=state)
         )
@@ -208,7 +218,8 @@ def news_agent(state: AgentState) -> AgentState:
 
 def summarizer_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
-    summary_model = os.getenv("GROQ_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
+    summary_model = _env("GROQ_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
+    fallback_model = _env("GROQ_SUMMARY_FALLBACK_MODEL", DEFAULT_SUMMARY_FALLBACK_MODEL)
     prompt = build_summary_prompt(
         user_query=state["user_query"],
         ticker=state["ticker"],
@@ -217,16 +228,29 @@ def summarizer_agent(state: AgentState) -> AgentState:
         news_analysis=state["news_analysis"],
         language=language,
     )
-    next_state = {
-        **state,
-        "language": language,
-        "analysis": _invoke_text(
+    try:
+        analysis = _invoke_text(
             prompt,
             stream_to_ui=True,
             model=summary_model,
             agent_name="summarizer_agent",
             state=state,
-        ),
+        )
+    except Exception as e:
+        if not fallback_model or fallback_model == summary_model or not _is_rate_limit_error(e):
+            raise
+        analysis = _invoke_text(
+            prompt,
+            stream_to_ui=True,
+            model=fallback_model,
+            agent_name="summarizer_agent_fallback",
+            state=state,
+        )
+
+    next_state = {
+        **state,
+        "language": language,
+        "analysis": analysis,
     }
     return {
         "analysis": next_state["analysis"],
