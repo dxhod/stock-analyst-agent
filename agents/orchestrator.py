@@ -40,11 +40,19 @@ def reset_stream_callback(callback):
 DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_INTENT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_SUMMARY_MODEL = "llama-3.3-70b-versatile"
-DEFAULT_SUMMARY_FALLBACK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+DEFAULT_SUMMARY_FALLBACK_MODELS = (
+    "openai/gpt-oss-120b,"
+    "meta-llama/llama-4-scout-17b-16e-instruct"
+)
 
 
 def _env(name: str, default: str) -> str:
     return os.getenv(name, default).strip()
+
+
+def _env_list(name: str, default: str) -> list[str]:
+    value = os.getenv(name) or os.getenv(name.rstrip("S")) or default
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
@@ -219,7 +227,7 @@ def news_agent(state: AgentState) -> AgentState:
 def summarizer_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
     summary_model = _env("GROQ_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
-    fallback_model = _env("GROQ_SUMMARY_FALLBACK_MODEL", DEFAULT_SUMMARY_FALLBACK_MODEL)
+    fallback_models = _env_list("GROQ_SUMMARY_FALLBACK_MODELS", DEFAULT_SUMMARY_FALLBACK_MODELS)
     prompt = build_summary_prompt(
         user_query=state["user_query"],
         ticker=state["ticker"],
@@ -237,15 +245,28 @@ def summarizer_agent(state: AgentState) -> AgentState:
             state=state,
         )
     except Exception as e:
-        if not fallback_model or fallback_model == summary_model or not _is_rate_limit_error(e):
+        if not _is_rate_limit_error(e):
             raise
-        analysis = _invoke_text(
-            prompt,
-            stream_to_ui=True,
-            model=fallback_model,
-            agent_name="summarizer_agent_fallback",
-            state=state,
-        )
+        last_error = e
+        analysis = None
+        for fallback_model in fallback_models:
+            if fallback_model == summary_model:
+                continue
+            try:
+                analysis = _invoke_text(
+                    prompt,
+                    stream_to_ui=True,
+                    model=fallback_model,
+                    agent_name=f"summarizer_agent_fallback:{fallback_model}",
+                    state=state,
+                )
+                break
+            except Exception as fallback_error:
+                if not _is_rate_limit_error(fallback_error):
+                    raise
+                last_error = fallback_error
+        if analysis is None:
+            raise last_error
 
     next_state = {
         **state,
