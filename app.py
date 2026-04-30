@@ -21,6 +21,40 @@ st.markdown(
         [data-testid="stHeader"] {
             background: transparent;
         }
+        .stApp,
+        .block-container,
+        [data-testid="stVerticalBlock"],
+        [data-testid="column"],
+        [data-testid="stMarkdownContainer"] {
+            caret-color: transparent;
+            cursor: default;
+            user-select: none;
+        }
+        a[href^="#"],
+        a.anchor-link {
+            display: none !important;
+        }
+        .hero-title {
+            margin: 0;
+            text-align: center;
+            font-size: 2.65rem;
+            line-height: 1.15;
+            font-weight: 800;
+            letter-spacing: 0;
+            cursor: default;
+            user-select: none;
+        }
+        .hero-subtitle {
+            margin-top: 1.05rem;
+            margin-bottom: 1.35rem;
+            text-align: center;
+            color: rgba(250, 250, 250, 0.58);
+            font-size: 0.88rem;
+            font-weight: 700;
+            letter-spacing: 0;
+            cursor: default;
+            user-select: none;
+        }
         h1 {
             text-align: center;
         }
@@ -34,14 +68,27 @@ st.markdown(
             background: rgba(255, 255, 255, 0.07);
         }
         div[data-testid="stTextInput"] input {
+            caret-color: auto;
             min-height: 52px;
             border-radius: 20px;
             border: 0;
             background: transparent;
             font-size: 1.02rem;
+            cursor: text;
+            user-select: text;
+        }
+        div[data-testid="stTextInput"] [data-baseweb="input"],
+        div[data-testid="stTextInput"] [data-baseweb="input"]:focus-within {
+            border-color: transparent !important;
+            box-shadow: none !important;
+            outline: none !important;
         }
         div[data-testid="stTextInput"] input:focus {
             box-shadow: none;
+            outline: none;
+        }
+        div[data-testid="InputInstructions"] {
+            display: none;
         }
         div[data-testid="stFormSubmitButton"] button {
             width: 48px;
@@ -52,15 +99,23 @@ st.markdown(
             padding: 0;
             font-size: 1.35rem;
             font-weight: 800;
+            cursor: pointer;
         }
         div[data-testid="stButton"] button {
             min-height: 42px;
             border-radius: 999px;
             font-weight: 600;
+            cursor: pointer;
         }
         [data-testid="stChatMessage"] {
             border-radius: 8px;
             padding: 0.35rem 0.1rem;
+            user-select: text;
+        }
+        [data-testid="stChatMessage"] *,
+        [data-testid="stChatMessageContent"] {
+            caret-color: transparent;
+            user-select: text;
         }
         [data-testid="stChatMessageContent"] h1,
         [data-testid="stChatMessageContent"] h2,
@@ -120,8 +175,13 @@ class StreamlitTokenCallback(BaseCallbackHandler):
 def render_header():
     left, center, right = st.columns([1, 2.35, 1])
     with center:
-        st.title("Stock Analyst Agent")
-        st.caption("MULTI-AGENT EQUITY RESEARCH")
+        st.markdown(
+            """
+            <div class="hero-title">Stock Analyst Agent</div>
+            <div class="hero-subtitle">MULTI-AGENT EQUITY RESEARCH</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def render_composer():
