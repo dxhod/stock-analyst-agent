@@ -37,6 +37,7 @@ def build_analysis_cache(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "created_at": now_utc(),
         "ticker": state.get("ticker"),
+        "tickers": state.get("tickers") or ([state.get("ticker")] if state.get("ticker") else []),
         "language": state.get("language"),
         "user_query": state.get("user_query"),
         "technical_analysis": state.get("technical_analysis", ""),

@@ -6,12 +6,71 @@ from agents.cache import CACHE_TTL, get_valid_cached_analysis, now_utc
 
 st.set_page_config(
     page_title="Stock Analyst Agent",
-    page_icon="📈",
+    page_icon=":chart_with_upwards_trend:",
     layout="wide",
 )
 
-st.title("📈 Stock Analyst Agent")
-st.caption("Multi-agent workflow powered by LangGraph, Groq, and yfinance")
+st.markdown(
+    """
+    <style>
+        .block-container {
+            max-width: 1180px;
+            padding-top: 4.25rem;
+            padding-bottom: 3rem;
+        }
+        [data-testid="stHeader"] {
+            background: transparent;
+        }
+        h1 {
+            text-align: center;
+        }
+        div[data-testid="stCaptionContainer"] {
+            text-align: center;
+        }
+        div[data-testid="stForm"] {
+            border: 1px solid rgba(250, 250, 250, 0.14);
+            border-radius: 28px;
+            padding: 0.75rem 0.85rem;
+            background: rgba(255, 255, 255, 0.07);
+        }
+        div[data-testid="stTextInput"] input {
+            min-height: 52px;
+            border-radius: 20px;
+            border: 0;
+            background: transparent;
+            font-size: 1.02rem;
+        }
+        div[data-testid="stTextInput"] input:focus {
+            box-shadow: none;
+        }
+        div[data-testid="stFormSubmitButton"] button {
+            width: 48px;
+            min-width: 48px;
+            height: 48px;
+            min-height: 48px;
+            border-radius: 999px;
+            padding: 0;
+            font-size: 1.35rem;
+            font-weight: 800;
+        }
+        div[data-testid="stButton"] button {
+            min-height: 42px;
+            border-radius: 999px;
+            font-weight: 600;
+        }
+        [data-testid="stChatMessage"] {
+            border-radius: 8px;
+            padding: 0.35rem 0.1rem;
+        }
+        [data-testid="stChatMessageContent"] h1,
+        [data-testid="stChatMessageContent"] h2,
+        [data-testid="stChatMessageContent"] h3 {
+            letter-spacing: 0;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 if "conversation" not in st.session_state:
     st.session_state.conversation = []
@@ -19,6 +78,20 @@ if "conversation_updated_at" not in st.session_state:
     st.session_state.conversation_updated_at = None
 if "analysis_cache" not in st.session_state:
     st.session_state.analysis_cache = None
+if "user_query_input" not in st.session_state:
+    st.session_state.user_query_input = ""
+if "pending_query" not in st.session_state:
+    st.session_state.pending_query = ""
+
+
+def submit_query():
+    st.session_state.pending_query = st.session_state.user_query_input.strip()
+    st.session_state.user_query_input = ""
+
+
+def set_example_query(text: str):
+    st.session_state.user_query_input = text
+
 
 conversation_updated_at = st.session_state.conversation_updated_at
 if conversation_updated_at and now_utc() - conversation_updated_at > CACHE_TTL:
@@ -44,11 +117,54 @@ class StreamlitTokenCallback(BaseCallbackHandler):
         self.placeholder.markdown(final_text)
 
 
-def render_conversation(streaming: bool = False):
-    st.divider()
-    st.subheader("Conversation")
+def render_header():
+    left, center, right = st.columns([1, 2.35, 1])
+    with center:
+        st.title("Stock Analyst Agent")
+        st.caption("MULTI-AGENT EQUITY RESEARCH")
 
-    with st.container(height=520, border=True):
+
+def render_composer():
+    left, center, right = st.columns([0.35, 3.3, 0.35])
+    with center:
+        with st.form("query_form", clear_on_submit=False):
+            input_col, send_col = st.columns([12, 1])
+            with input_col:
+                st.text_input(
+                    "Ask about a stock",
+                    placeholder="Ask about a stock or company",
+                    label_visibility="collapsed",
+                    key="user_query_input",
+                )
+            with send_col:
+                run = st.form_submit_button("↑", type="primary", on_click=submit_query)
+
+        _, example_col_1, example_col_2, _ = st.columns([0.3, 1.3, 1.3, 0.3])
+        with example_col_1:
+            st.button(
+                "Analyze Tesla stock",
+                use_container_width=True,
+                on_click=set_example_query,
+                args=("Analyze Tesla stock",),
+            )
+        with example_col_2:
+            st.button(
+                "Compare NVDA and Apple risks",
+                use_container_width=True,
+                on_click=set_example_query,
+                args=("Compare NVDA and Apple risks",),
+            )
+
+    return run
+
+
+def render_conversation(streaming: bool = False):
+    message_count = len(st.session_state.conversation)
+    heading_col, count_col = st.columns([5, 1])
+    heading_col.subheader("Conversation")
+    count_col.caption(f"{message_count} messages")
+
+    with st.container(height=560, border=True):
         for message in st.session_state.conversation:
             role = "user" if message["role"] == "user" else "assistant"
             with st.chat_message(role):
@@ -61,24 +177,23 @@ def render_conversation(streaming: bool = False):
     return None
 
 
-with st.form("query_form", clear_on_submit=True):
-    col1, col2 = st.columns([6, 1])
-    with col1:
-        user_query = st.text_input(
-            "Ask about a stock",
-            placeholder="Analyze Tesla stock, compare NVDA risks, what is the bull case?",
-            label_visibility="collapsed",
-        )
-    with col2:
-        run = st.form_submit_button("Ask", type="primary", use_container_width=True)
+render_header()
+run = render_composer()
 
-if valid_cache:
-    st.caption(f"Active analysis: {valid_cache.get('ticker')}")
+if st.session_state.conversation:
+    clear_col, _ = st.columns([1, 6])
+    with clear_col:
+        if st.button("Clear", use_container_width=True):
+            st.session_state.conversation = []
+            st.session_state.conversation_updated_at = None
+            st.session_state.analysis_cache = None
+            st.rerun()
 
-query = user_query.strip()
+query = st.session_state.pending_query
 conversation_rendered = False
 
-if run and query:
+if query:
+    st.session_state.pending_query = ""
     prior_conversation = list(st.session_state.conversation)
     st.session_state.conversation.append({"role": "user", "content": query})
     assistant_placeholder = render_conversation(streaming=True)

@@ -37,6 +37,7 @@ def log_agent_run(
         "agent": agent,
         "model": model,
         "ticker": state.get("ticker"),
+        "tickers": state.get("tickers"),
         "language": state.get("language"),
         "user_query": state.get("user_query"),
         "input": prompt,

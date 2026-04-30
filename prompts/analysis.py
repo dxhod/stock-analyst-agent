@@ -72,22 +72,27 @@ def build_intent_prompt(
     cached_analysis: dict | None = None,
 ) -> str:
     cached_ticker = cached_analysis.get("ticker") if cached_analysis else None
+    cached_tickers = cached_analysis.get("tickers") if cached_analysis else None
     return f"""You are an intent validator for a stock-analysis assistant.
 
 User query:
 {user_query}
 
 Cached analysis ticker: {cached_ticker or "none"}
+Cached analysis tickers: {cached_tickers or "none"}
 
-Classify the request, extract the stock ticker, and detect the user's language.
+Classify the request, extract all stock tickers, and detect the user's language.
 
 Rules:
 - If the user asks about a new company or ticker, set route to "new_analysis".
+- If the user compares multiple companies or tickers, include every requested ticker in tickers.
 - If the user asks a follow-up about the cached analysis, set route to "follow_up".
 - If there is no cached analysis, never use "follow_up".
 - Resolve well-known company names to US tickers when obvious, for example Tesla -> TSLA, Apple -> AAPL.
-- The ticker field must contain only the ticker symbol, never the whole user query.
+- The ticker field must contain the primary ticker symbol only, never the whole user query.
+- The tickers field must be an array of uppercase ticker symbols. For comparison requests, include all compared tickers.
 - For "Analyze Apple stock", return ticker "AAPL", not "ANALYZE APPLE STOCK".
+- For "Compare NVDA and AAPL risks", return ticker "NVDA" and tickers ["NVDA", "AAPL"].
 - Set language to the natural language used by the user, for example English, Russian, Ukrainian, Deutsch, Espanol, Francais.
 - If the user mixes languages, choose the dominant language of the request.
 - If there is no stock/company intent, set route to "unknown".
@@ -97,6 +102,7 @@ JSON schema:
 {{
   "route": "new_analysis | follow_up | unknown",
   "ticker": "UPPERCASE_TICKER_OR_EMPTY",
+  "tickers": ["UPPERCASE_TICKER"],
   "language": "DETECTED_LANGUAGE_NAME",
   "reason": "short reason"
 }}
@@ -167,6 +173,7 @@ News agent output:
 {news_analysis}
 
 Synthesize the three analyses into a direct answer to the user's request.
+If the request contains multiple tickers, compare them directly and make clear which risks, strengths, and conclusions belong to each ticker.
 
 Required sections:
 {_summary_sections(language)}

@@ -9,7 +9,7 @@ from agents.cache import build_analysis_cache, get_valid_cached_analysis
 from agents.language_detector import detect_language
 from agents.run_logger import ensure_run_id, log_agent_run
 from agents.state import AgentState
-from agents.ticker_resolver import normalize_ticker
+from agents.ticker_resolver import normalize_tickers
 from prompts.analysis import (
     build_follow_up_prompt,
     build_fundamental_prompt,
@@ -39,9 +39,9 @@ def reset_stream_callback(callback):
 
 DEFAULT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 DEFAULT_INTENT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-DEFAULT_SUMMARY_MODEL = "llama-3.3-70b-versatile"
-DEFAULT_SUMMARY_FALLBACK_MODELS = (
-    "openai/gpt-oss-120b,"
+DEFAULT_SUMMARY_MODEL = "openai/gpt-oss-120b"
+DEFAULT_SUMMARY_FALLBACK_MODELS = (   
+    "llama-3.3-70b-versatile,"
     "meta-llama/llama-4-scout-17b-16e-instruct"
 )
 
@@ -130,13 +130,32 @@ def validate_intent(state: AgentState) -> AgentState:
         return {"error": f"Could not validate intent: {e}"}
 
     route = intent.get("route")
-    ticker = normalize_ticker(state["user_query"], intent.get("ticker"))
+    query_tickers = normalize_tickers(state["user_query"])
+    model_tickers = normalize_tickers(
+        "",
+        raw_ticker=intent.get("ticker"),
+        raw_tickers=intent.get("tickers") or [],
+    )
+    tickers = query_tickers or model_tickers
     language = detect_language(state["user_query"], intent.get("language"))
+    cached_tickers = (cached_analysis or {}).get("tickers") or (
+        [(cached_analysis or {}).get("ticker")] if (cached_analysis or {}).get("ticker") else []
+    )
+
+    if query_tickers and (
+        not cached_tickers or any(ticker not in cached_tickers for ticker in query_tickers)
+    ):
+        route = "new_analysis"
+        intent["route"] = route
+    elif cached_analysis and not tickers and route != "unknown":
+        route = "follow_up"
+        intent["route"] = route
+        tickers = cached_tickers
 
     if route == "follow_up" and not cached_analysis:
         return {"error": "Follow-up requested, but no valid cached analysis was found."}
 
-    if route == "new_analysis" and not ticker:
+    if route == "new_analysis" and not tickers:
         return {
             "error": (
                 "I could not identify a valid stock ticker from your request. "
@@ -153,7 +172,8 @@ def validate_intent(state: AgentState) -> AgentState:
     return {
         "intent": intent,
         "run_id": state["run_id"],
-        "ticker": ticker or (cached_analysis or {}).get("ticker", ""),
+        "ticker": (tickers[0] if tickers else (cached_analysis or {}).get("ticker", "")),
+        "tickers": tickers or cached_tickers,
         "language": language,
         "cached_analysis": cached_analysis,
         "error": None,
@@ -169,13 +189,27 @@ def route_after_intent(state: AgentState) -> str:
 
 
 def fetch_data(state: AgentState) -> AgentState:
-    ticker = state["ticker"]
+    tickers = state.get("tickers") or [state["ticker"]]
     try:
+        price_data_by_ticker = {}
+        fundamentals_by_ticker = {}
+        news_by_ticker = {}
+        for ticker in tickers:
+            price_data_by_ticker[ticker] = fetch_price_data(ticker)
+            fundamentals_by_ticker[ticker] = fetch_fundamentals(ticker)
+            news_by_ticker[ticker] = fetch_news(ticker)
+
+        primary_ticker = tickers[0]
         return {
             "run_id": state.get("run_id"),
-            "price_data": fetch_price_data(ticker),
-            "fundamentals": fetch_fundamentals(ticker),
-            "news": fetch_news(ticker),
+            "ticker": primary_ticker,
+            "tickers": tickers,
+            "price_data": price_data_by_ticker[primary_ticker],
+            "price_data_by_ticker": price_data_by_ticker,
+            "fundamentals": fundamentals_by_ticker[primary_ticker],
+            "fundamentals_by_ticker": fundamentals_by_ticker,
+            "news": news_by_ticker[primary_ticker],
+            "news_by_ticker": news_by_ticker,
             "error": None,
         }
     except Exception as e:
@@ -192,8 +226,9 @@ def fanout_agents(state: AgentState) -> AgentState:
 
 def technical_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
+    price_data = state.get("price_data_by_ticker") or state["price_data"]
     prompt = build_technical_prompt(
-        price_data=state["price_data"],
+        price_data=price_data,
         language=language,
     )
     return {
@@ -203,8 +238,9 @@ def technical_agent(state: AgentState) -> AgentState:
 
 def fundamental_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
+    fundamentals = state.get("fundamentals_by_ticker") or state["fundamentals"]
     prompt = build_fundamental_prompt(
-        fundamentals=state["fundamentals"],
+        fundamentals=fundamentals,
         language=language,
     )
     return {
@@ -214,9 +250,17 @@ def fundamental_agent(state: AgentState) -> AgentState:
 
 def news_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
+    tickers = state.get("tickers") or [state["ticker"]]
+    news_by_ticker = state.get("news_by_ticker")
+    if news_by_ticker:
+        news_text = "\n\n".join(
+            f"## {ticker}\n{news_to_text(news_by_ticker.get(ticker, []))}" for ticker in tickers
+        )
+    else:
+        news_text = news_to_text(state["news"])
     prompt = build_news_prompt(
-        ticker=state["ticker"],
-        news_text=news_to_text(state["news"]),
+        ticker=", ".join(tickers),
+        news_text=news_text,
         language=language,
     )
     return {
@@ -228,9 +272,10 @@ def summarizer_agent(state: AgentState) -> AgentState:
     language = detect_language(state["user_query"], state.get("language"))
     summary_model = _env("GROQ_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
     fallback_models = _env_list("GROQ_SUMMARY_FALLBACK_MODELS", DEFAULT_SUMMARY_FALLBACK_MODELS)
+    tickers = state.get("tickers") or [state["ticker"]]
     prompt = build_summary_prompt(
         user_query=state["user_query"],
-        ticker=state["ticker"],
+        ticker=", ".join(tickers),
         technical_analysis=state["technical_analysis"],
         fundamental_analysis=state["fundamental_analysis"],
         news_analysis=state["news_analysis"],
@@ -293,6 +338,7 @@ def follow_up_agent(state: AgentState) -> AgentState:
     )
     return {
         "ticker": cached_analysis.get("ticker", ""),
+        "tickers": cached_analysis.get("tickers") or ([cached_analysis.get("ticker")] if cached_analysis.get("ticker") else []),
         "analysis": _invoke_text(
             prompt,
             stream_to_ui=True,
