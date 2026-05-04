@@ -15,10 +15,12 @@ from prompts.analysis import (
     build_fundamental_prompt,
     build_intent_prompt,
     build_news_prompt,
+    build_portfolio_preferences_prompt,
+    build_portfolio_summary_prompt,
     build_summary_prompt,
     build_technical_prompt,
 )
-from tools import fetch_fundamentals, fetch_news, fetch_price_data, news_to_text
+from tools import build_portfolio, fetch_fundamentals, fetch_news, fetch_price_data, missing_required_preferences, news_to_text
 
 load_dotenv()
 
@@ -44,6 +46,7 @@ DEFAULT_SUMMARY_FALLBACK_MODELS = (
     "llama-3.3-70b-versatile,"
     "meta-llama/llama-4-scout-17b-16e-instruct"
 )
+DEFAULT_PORTFOLIO_SUMMARY_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
 def _env(name: str, default: str) -> str:
@@ -57,7 +60,102 @@ def _env_list(name: str, default: str) -> list[str]:
 
 def _is_rate_limit_error(error: Exception) -> bool:
     text = str(error).lower()
-    return "rate_limit" in text or "rate limit" in text or "429" in text
+    return any(
+        marker in text
+        for marker in (
+            "rate_limit",
+            "rate limit",
+            "429",
+            "413",
+            "request too large",
+            "tokens per minute",
+            "tpm",
+        )
+    )
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _friendly_error(error: Exception) -> str:
+    text = str(error)
+    if "RetryError" in text:
+        return (
+            "Market data provider did not return usable data after several retries. "
+            "Please try again in a moment or choose a narrower request."
+        )
+    return text
+
+
+def _format_portfolio_markdown(portfolio_result: dict, language: str) -> str:
+    allocations = portfolio_result.get("allocations", [])
+    preferences = portfolio_result.get("preferences", {})
+    is_ru = "рус" in language.lower() or "russian" in language.lower()
+
+    if is_ru:
+        lines = [
+            "# Portfolio Builder",
+            "",
+            "| Тикер | Название | Тип | Сектор | Вес | Сумма | Роль |",
+            "|---|---|---|---|---:|---:|---|",
+        ]
+        for item in allocations:
+            lines.append(
+                f"| {item.get('ticker')} | {item.get('name')} | {item.get('type')} | "
+                f"{item.get('sector')} | {item.get('weight_pct')}% | "
+                f"${item.get('allocation_amount'):,.2f} | {item.get('role')} |"
+            )
+        lines.extend(
+            [
+                "",
+                "## Логика",
+                (
+                    f"Портфель построен под риск {preferences.get('risk')}, горизонт "
+                    f"{preferences.get('horizon')}, стиль {preferences.get('style')} и ETF preference "
+                    f"{preferences.get('etf_preference')}. Cash buffer: {preferences.get('cash_pct')}%."
+                ),
+                "",
+                "## Ребалансировка",
+                portfolio_result.get("rebalance", "Review monthly."),
+                "",
+                "**Важно:** это информационный материал, не индивидуальная финансовая рекомендация.",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines = [
+        "# Portfolio Builder",
+        "",
+        "| Ticker | Name | Type | Sector | Weight | Allocation | Role |",
+        "|---|---|---|---|---:|---:|---|",
+    ]
+    for item in allocations:
+        lines.append(
+            f"| {item.get('ticker')} | {item.get('name')} | {item.get('type')} | "
+            f"{item.get('sector')} | {item.get('weight_pct')}% | "
+            f"${item.get('allocation_amount'):,.2f} | {item.get('role')} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Rationale",
+            (
+                f"Built for {preferences.get('risk')} risk, {preferences.get('horizon')} horizon, "
+                f"{preferences.get('style')} style, and {preferences.get('etf_preference')} ETF preference. "
+                f"Cash buffer: {preferences.get('cash_pct')}%."
+            ),
+            "",
+            "## Rebalancing",
+            portfolio_result.get("rebalance", "Review monthly."),
+            "",
+            "**Important:** informational only, not financial advice.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _invoke_text(
@@ -113,9 +211,33 @@ def _parse_json(text: str) -> dict:
         return parsed
 
 
+def _parse_portfolio_payload(user_query: str) -> dict | None:
+    marker = "PORTFOLIO_BUILDER_REQUEST"
+    if marker not in user_query:
+        return None
+    payload = user_query.split(marker, 1)[1].strip()
+    if not payload:
+        return {}
+    return _parse_json(payload)
+
+
 def validate_intent(state: AgentState) -> AgentState:
     ensure_run_id(state)
     cached_analysis = get_valid_cached_analysis(state.get("cached_analysis"))
+    portfolio_payload = _parse_portfolio_payload(state["user_query"])
+    if portfolio_payload is not None:
+        language = portfolio_payload.get("language") or detect_language(state["user_query"], None)
+        return {
+            "intent": {"route": "portfolio_builder", "reason": "portfolio builder UI payload"},
+            "run_id": state["run_id"],
+            "ticker": "",
+            "tickers": [],
+            "language": language,
+            "portfolio_preferences": portfolio_payload,
+            "cached_analysis": cached_analysis,
+            "error": None,
+        }
+
     prompt = build_intent_prompt(
         user_query=state["user_query"],
         cached_analysis=cached_analysis,
@@ -130,6 +252,18 @@ def validate_intent(state: AgentState) -> AgentState:
         return {"error": f"Could not validate intent: {e}"}
 
     route = intent.get("route")
+    language = detect_language(state["user_query"], intent.get("language"))
+    if route == "portfolio_builder":
+        return {
+            "intent": intent,
+            "run_id": state["run_id"],
+            "ticker": "",
+            "tickers": [],
+            "language": language,
+            "cached_analysis": cached_analysis,
+            "error": None,
+        }
+
     query_tickers = normalize_tickers(state["user_query"])
     model_tickers = normalize_tickers(
         "",
@@ -137,7 +271,6 @@ def validate_intent(state: AgentState) -> AgentState:
         raw_tickers=intent.get("tickers") or [],
     )
     tickers = query_tickers or model_tickers
-    language = detect_language(state["user_query"], intent.get("language"))
     cached_tickers = (cached_analysis or {}).get("tickers") or (
         [(cached_analysis or {}).get("ticker")] if (cached_analysis or {}).get("ticker") else []
     )
@@ -163,7 +296,7 @@ def validate_intent(state: AgentState) -> AgentState:
             )
         }
 
-    if route not in {"new_analysis", "follow_up"}:
+    if route not in {"new_analysis", "follow_up", "portfolio_builder"}:
         return {
             "intent": intent,
             "error": "Ask about a stock ticker or company, for example: Analyze Tesla stock.",
@@ -183,6 +316,8 @@ def validate_intent(state: AgentState) -> AgentState:
 def route_after_intent(state: AgentState) -> str:
     if state.get("error"):
         return "end"
+    if state.get("intent", {}).get("route") == "portfolio_builder":
+        return "portfolio_builder"
     if state.get("intent", {}).get("route") == "follow_up":
         return "follow_up"
     return "new_analysis"
@@ -213,7 +348,7 @@ def fetch_data(state: AgentState) -> AgentState:
             "error": None,
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_error(e)}
 
 
 def should_analyze(state: AgentState) -> str:
@@ -349,6 +484,133 @@ def follow_up_agent(state: AgentState) -> AgentState:
     }
 
 
+def portfolio_builder_agent(state: AgentState) -> AgentState:
+    cached_analysis = get_valid_cached_analysis(state.get("cached_analysis"))
+    cached_preferences = (cached_analysis or {}).get("portfolio_preferences") or {}
+    direct_preferences = state.get("portfolio_preferences") or _parse_portfolio_payload(state["user_query"])
+    language = (
+        (direct_preferences or {}).get("language")
+        or state.get("language")
+        or detect_language(state["user_query"], None)
+    )
+
+    if direct_preferences is not None:
+        preferences = {**cached_preferences, **direct_preferences}
+    else:
+        preference_prompt = build_portfolio_preferences_prompt(
+            user_query=state["user_query"],
+            conversation=[],
+            cached_preferences=cached_preferences,
+            language=language,
+        )
+        try:
+            preferences = _parse_json(
+                _invoke_text(
+                    preference_prompt,
+                    model=_env("GROQ_INTENT_MODEL", DEFAULT_INTENT_MODEL),
+                    agent_name="portfolio_preference_extractor",
+                    state=state,
+                )
+            )
+        except Exception as e:
+            return {"error": f"Could not read portfolio preferences: {e}"}
+
+    missing = missing_required_preferences(preferences)
+    if missing:
+        quiz = "Portfolio Builder quiz is ready. Please answer the questions below."
+        quiz_state = {
+            **state,
+            "cache_type": "portfolio_quiz",
+            "language": language,
+            "portfolio_preferences": preferences,
+            "analysis": quiz,
+        }
+        return {
+            "language": language,
+            "portfolio_preferences": preferences,
+            "analysis": quiz,
+            "cached_analysis": build_analysis_cache(quiz_state),
+        }
+
+    try:
+        portfolio_result = build_portfolio(preferences)
+    except Exception as e:
+        return {"error": f"Could not build portfolio: {_friendly_error(e)}"}
+
+    if not _env_bool("GROQ_PORTFOLIO_USE_LLM_SUMMARY", False):
+        analysis = _format_portfolio_markdown(portfolio_result, language)
+        next_state = {
+            **state,
+            "cache_type": "portfolio_analysis",
+            "language": language,
+            "portfolio_preferences": portfolio_result["preferences"],
+            "portfolio_result": portfolio_result,
+            "analysis": analysis,
+        }
+        return {
+            "language": language,
+            "portfolio_preferences": next_state["portfolio_preferences"],
+            "portfolio_result": portfolio_result,
+            "analysis": analysis,
+            "cached_analysis": build_analysis_cache(next_state),
+        }
+
+    summary_prompt = build_portfolio_summary_prompt(
+        user_query="Portfolio builder UI request" if direct_preferences is not None else state["user_query"],
+        preferences=portfolio_result["preferences"],
+        portfolio_result=portfolio_result,
+        language=language,
+    )
+    summary_model = _env("GROQ_PORTFOLIO_SUMMARY_MODEL", DEFAULT_PORTFOLIO_SUMMARY_MODEL)
+    fallback_models = _env_list("GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS", DEFAULT_SUMMARY_FALLBACK_MODELS)
+    try:
+        analysis = _invoke_text(
+            summary_prompt,
+            stream_to_ui=True,
+            model=summary_model,
+            agent_name="portfolio_summarizer_agent",
+            state=state,
+        )
+    except Exception as e:
+        if not _is_rate_limit_error(e):
+            raise
+        last_error = e
+        analysis = None
+        for fallback_model in fallback_models:
+            if fallback_model == summary_model:
+                continue
+            try:
+                analysis = _invoke_text(
+                    summary_prompt,
+                    stream_to_ui=True,
+                    model=fallback_model,
+                    agent_name=f"portfolio_summarizer_agent_fallback:{fallback_model}",
+                    state=state,
+                )
+                break
+            except Exception as fallback_error:
+                if not _is_rate_limit_error(fallback_error):
+                    raise
+                last_error = fallback_error
+        if analysis is None:
+            analysis = _format_portfolio_markdown(portfolio_result, language)
+    next_state = {
+        **state,
+        "cache_type": "portfolio_analysis",
+        "language": language,
+        "portfolio_preferences": portfolio_result["preferences"],
+        "portfolio_result": portfolio_result,
+        "analysis": analysis,
+    }
+    return {
+        "language": language,
+        "portfolio_preferences": next_state["portfolio_preferences"],
+        "portfolio_result": portfolio_result,
+        "analysis": analysis,
+        "cached_analysis": build_analysis_cache(next_state),
+    }
+
+
 def build_graph():
     graph = StateGraph(AgentState)
 
@@ -360,6 +622,7 @@ def build_graph():
     graph.add_node("news_agent", news_agent)
     graph.add_node("summarizer_agent", summarizer_agent)
     graph.add_node("follow_up_agent", follow_up_agent)
+    graph.add_node("portfolio_builder_agent", portfolio_builder_agent)
 
     graph.set_entry_point("validate_intent")
     graph.add_conditional_edges(
@@ -368,6 +631,7 @@ def build_graph():
         {
             "new_analysis": "fetch_data",
             "follow_up": "follow_up_agent",
+            "portfolio_builder": "portfolio_builder_agent",
             "end": END,
         },
     )
@@ -388,6 +652,7 @@ def build_graph():
     )
     graph.add_edge("summarizer_agent", END)
     graph.add_edge("follow_up_agent", END)
+    graph.add_edge("portfolio_builder_agent", END)
 
     return graph.compile()
 

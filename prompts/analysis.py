@@ -71,6 +71,7 @@ def build_intent_prompt(
     user_query: str,
     cached_analysis: dict | None = None,
 ) -> str:
+    cached_type = cached_analysis.get("type") if cached_analysis else None
     cached_ticker = cached_analysis.get("ticker") if cached_analysis else None
     cached_tickers = cached_analysis.get("tickers") if cached_analysis else None
     return f"""You are an intent validator for a stock-analysis assistant.
@@ -80,10 +81,12 @@ User query:
 
 Cached analysis ticker: {cached_ticker or "none"}
 Cached analysis tickers: {cached_tickers or "none"}
+Cached workflow type: {cached_type or "none"}
 
 Classify the request, extract all stock tickers, and detect the user's language.
 
 Rules:
+- If the user message contains "PORTFOLIO_BUILDER_REQUEST", set route to "portfolio_builder".
 - If the user asks about a new company or ticker, set route to "new_analysis".
 - If the user compares multiple companies or tickers, include every requested ticker in tickers.
 - If the user asks a follow-up about the cached analysis, set route to "follow_up".
@@ -100,7 +103,7 @@ Rules:
 
 JSON schema:
 {{
-  "route": "new_analysis | follow_up | unknown",
+  "route": "new_analysis | follow_up | portfolio_builder | unknown",
   "ticker": "UPPERCASE_TICKER_OR_EMPTY",
   "tickers": ["UPPERCASE_TICKER"],
   "language": "DETECTED_LANGUAGE_NAME",
@@ -118,6 +121,102 @@ Use only this price dataset:
 
 Return a concise technical view covering trend, support/resistance, RSI, volume, volatility, and actionable levels.
 Be specific and avoid generic market commentary.
+"""
+
+
+def build_portfolio_preferences_prompt(
+    user_query: str,
+    conversation: list[dict[str, str]],
+    cached_preferences: dict | None,
+    language: str,
+) -> str:
+    return f"""You extract preferences for a stock and ETF portfolio builder.
+{_language_rule(language)}
+
+User message:
+{user_query}
+
+Recent conversation:
+{_json(conversation[-8:])}
+
+Already known preferences:
+{_json(cached_preferences or {})}
+
+Extract only what the user explicitly provided or clearly implied. Merge with already known preferences.
+Return exactly one valid JSON object. No markdown.
+
+Fields:
+- investment_amount: number or null. Use USD unless the user explicitly provides another currency.
+- currency: "USD" unless another currency is explicit.
+- holdings_count: integer or null. Desired number of positions, including ETFs and cash.
+- risk: "Conservative" | "Balanced" | "Aggressive" | null.
+- horizon: "<6mo" | "6-18mo" | "1-3yr" | "3yr+" | null.
+- style: "Growth" | "Value" | "Dividend" | "Quality" | "Balanced" | "Defensive" | null.
+- etf_preference: "ETF-heavy" | "Mixed" | "Stocks-only" | null.
+- overweight_sectors: array of sector/theme strings.
+- avoid_sectors: array of sector/theme strings.
+- cash_pct: number or null. Percent from 0 to 20.
+
+JSON schema:
+{{
+  "investment_amount": null,
+  "currency": "USD",
+  "holdings_count": null,
+  "risk": null,
+  "horizon": null,
+  "style": null,
+  "etf_preference": null,
+  "overweight_sectors": [],
+  "avoid_sectors": [],
+  "cash_pct": null
+}}
+"""
+
+
+def build_portfolio_quiz_prompt(preferences: dict, language: str) -> str:
+    return f"""You are a stock and ETF portfolio assistant.
+{_language_rule(language)}
+
+Known preferences:
+{_json(preferences)}
+
+Ask a concise chat-based quiz to collect missing portfolio inputs. Do not ask for fields already provided.
+Required fields: investment_amount, holdings_count, risk, horizon, style, etf_preference, cash_pct.
+Optional fields: overweight_sectors, avoid_sectors.
+
+Use numbered questions, compact choices, and ask the user to answer in one message.
+Include a short note that this is informational and not financial advice.
+"""
+
+
+def build_portfolio_summary_prompt(
+    user_query: str,
+    preferences: dict,
+    portfolio_result: dict,
+    language: str,
+) -> str:
+    return f"""You are the lead portfolio analyst for a stock and ETF assistant.
+{_language_rule(language)}
+
+User request:
+{user_query}
+
+Portfolio preferences:
+{_json(preferences)}
+
+Deterministic portfolio builder result:
+{_json(portfolio_result)}
+
+Write a polished markdown response. Do not output JSON.
+Required:
+- Title.
+- Allocation table with ticker, name, type, sector, weight, dollar allocation, and short role.
+- Brief rationale explaining how risk, horizon, style, ETF preference, and cash affected the result.
+- Key risks and what to monitor.
+- Rebalance guidance.
+- Clear informational/not-financial-advice disclaimer.
+
+Do not invent prices or share counts. Use only the provided allocation dollars and percentages.
 """
 
 

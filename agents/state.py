@@ -19,5 +19,7 @@ class AgentState(TypedDict, total=False):
     technical_analysis: str
     fundamental_analysis: str
     news_analysis: str
+    portfolio_preferences: dict[str, Any]
+    portfolio_result: dict[str, Any]
     analysis: str
     error: str | None

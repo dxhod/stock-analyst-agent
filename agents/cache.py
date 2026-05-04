@@ -34,7 +34,9 @@ def get_valid_cached_analysis(cache: dict[str, Any] | None) -> dict[str, Any] | 
 
 
 def build_analysis_cache(state: dict[str, Any]) -> dict[str, Any]:
+    cache_type = state.get("cache_type", "analysis")
     return {
+        "type": cache_type,
         "created_at": now_utc(),
         "ticker": state.get("ticker"),
         "tickers": state.get("tickers") or ([state.get("ticker")] if state.get("ticker") else []),
@@ -43,5 +45,7 @@ def build_analysis_cache(state: dict[str, Any]) -> dict[str, Any]:
         "technical_analysis": state.get("technical_analysis", ""),
         "fundamental_analysis": state.get("fundamental_analysis", ""),
         "news_analysis": state.get("news_analysis", ""),
+        "portfolio_preferences": state.get("portfolio_preferences"),
+        "portfolio_result": state.get("portfolio_result"),
         "analysis": state.get("analysis", ""),
     }

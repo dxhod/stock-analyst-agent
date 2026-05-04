@@ -26,11 +26,14 @@ Live demo: [stock-analyst-agent-production.up.railway.app](https://stock-analyst
   - News agent
 - Summarizer agent: combines specialist outputs into one structured answer.
 - Follow-up agent: answers follow-up questions using the cached analysis context.
+- Portfolio Builder: builds a stock/ETF portfolio from a guided Streamlit UI quiz or full form, using S&P 500/Nasdaq 100 candidates with a local fallback universe.
 - 30-minute conversation and analysis cache.
 - Streaming final response in the Streamlit chat UI.
 - Automatic language detection from the user query.
 - Local JSONL agent run logging for prompt/output inspection.
 - Configurable Groq model routing with summarizer fallback models.
+- Localized Portfolio Builder UI in English, German, Ukrainian, Russian, and Spanish.
+- Educational disclaimer for generated portfolio allocations.
 
 ---
 
@@ -173,6 +176,14 @@ Combines the three specialist outputs into a structured investment answer. For c
 
 Uses the cached analysis and recent conversation context to answer follow-up questions without rerunning the full workflow unless the user asks about a new ticker or company.
 
+### Portfolio Builder
+
+Builds a markdown portfolio proposal from the Streamlit Portfolio Builder UI, not from normal chat messages. Users can either walk through a one-question-at-a-time guided quiz or open the full form. The first quiz step selects the UI/output language: English, German, Ukrainian, Russian, or Spanish.
+
+The builder asks for investment amount, number of holdings, risk level, horizon, style, ETF preference, sector tilts, sectors to avoid, and cash buffer. It loads S&P 500 and Nasdaq 100 constituents from external sources when available, adds a small ETF universe, falls back to a local large-cap list if needed, scores candidates deterministically, and constructs weights locally.
+
+The LLM does not choose tickers or weights. It can optionally polish the final portfolio explanation when `GROQ_PORTFOLIO_USE_LLM_SUMMARY=true`; otherwise the app returns a local markdown summary. If Groq hits a token/rate limit, the portfolio flow falls back to local markdown instead of failing. The response is informational only and not financial advice.
+
 ---
 
 ## Cache and Follow-Up Questions
@@ -204,9 +215,14 @@ GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 GROQ_INTENT_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 GROQ_SUMMARY_MODEL=openai/gpt-oss-120b
 GROQ_SUMMARY_FALLBACK_MODELS=llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct
+GROQ_PORTFOLIO_USE_LLM_SUMMARY=false
+GROQ_PORTFOLIO_SUMMARY_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
+GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS=llama-3.3-70b-versatile,openai/gpt-oss-120b
 ```
 
 Fallback behavior is currently used for the summarizer. If the primary summary model hits a rate limit, the workflow retries the fallback chain.
+
+Portfolio Builder has separate summary routing because portfolio prompts can otherwise consume Groq token-per-minute limits quickly. The default recommended setting is `GROQ_PORTFOLIO_USE_LLM_SUMMARY=false` for stable local markdown output. Set it to `true` when you want LLM-polished explanations.
 
 ---
 
@@ -285,6 +301,9 @@ cp .env.example .env
 | `GROQ_INTENT_MODEL` | No | Model used by the intent validator |
 | `GROQ_SUMMARY_MODEL` | No | Primary model used by the summarizer |
 | `GROQ_SUMMARY_FALLBACK_MODELS` | No | Comma-separated fallback models for the summarizer |
+| `GROQ_PORTFOLIO_USE_LLM_SUMMARY` | No | Enable LLM-polished Portfolio Builder summaries. Defaults to local markdown when false |
+| `GROQ_PORTFOLIO_SUMMARY_MODEL` | No | Primary model for optional Portfolio Builder summaries |
+| `GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS` | No | Comma-separated fallback models for optional Portfolio Builder summaries |
 | `AGENT_LOG_DIR` | No | Directory for local JSONL logs. Default: `logs` |
 | `LANGFUSE_PUBLIC_KEY` | No | Optional observability key |
 | `LANGFUSE_SECRET_KEY` | No | Optional observability key |
@@ -316,8 +335,10 @@ stock-analyst-agent/
 |   |-- price_data.py          # OHLCV and technical indicators
 |   |-- fundamentals.py        # Fundamental metrics
 |   |-- news_fetcher.py        # Recent news
+|   |-- portfolio_builder.py   # Stock/ETF universe, scoring, and allocation builder
 |
 |-- examples/
+|-- test_portfolio_builder.py
 |-- logs/                      # Local logs, ignored by git
 ```
 
@@ -332,6 +353,8 @@ What is the bull case for Microsoft?
 Which stock looks safer right now?
 What could invalidate the bullish thesis?
 ```
+
+Portfolio construction is available in the Streamlit **Portfolio Builder** section. Use **Start guided portfolio quiz** for a step-by-step localized flow, or **Open full portfolio form** for a compact form.
 
 ---
 
