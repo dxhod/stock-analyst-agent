@@ -17,9 +17,11 @@ from prompts.analysis import (
     build_news_prompt,
     build_portfolio_preferences_prompt,
     build_portfolio_summary_prompt,
+    build_product_knowledge_prompt,
     build_summary_prompt,
     build_technical_prompt,
 )
+from rag import retrieve_context
 from tools import build_portfolio, fetch_fundamentals, fetch_news, fetch_price_data, missing_required_preferences, news_to_text
 
 load_dotenv()
@@ -253,7 +255,7 @@ def validate_intent(state: AgentState) -> AgentState:
 
     route = intent.get("route")
     language = detect_language(state["user_query"], intent.get("language"))
-    if route == "portfolio_builder":
+    if route in {"portfolio_builder", "product_knowledge"}:
         return {
             "intent": intent,
             "run_id": state["run_id"],
@@ -296,7 +298,7 @@ def validate_intent(state: AgentState) -> AgentState:
             )
         }
 
-    if route not in {"new_analysis", "follow_up", "portfolio_builder"}:
+    if route not in {"new_analysis", "follow_up", "portfolio_builder", "product_knowledge"}:
         return {
             "intent": intent,
             "error": "Ask about a stock ticker or company, for example: Analyze Tesla stock.",
@@ -318,6 +320,8 @@ def route_after_intent(state: AgentState) -> str:
         return "end"
     if state.get("intent", {}).get("route") == "portfolio_builder":
         return "portfolio_builder"
+    if state.get("intent", {}).get("route") == "product_knowledge":
+        return "product_knowledge"
     if state.get("intent", {}).get("route") == "follow_up":
         return "follow_up"
     return "new_analysis"
@@ -408,6 +412,10 @@ def summarizer_agent(state: AgentState) -> AgentState:
     summary_model = _env("GROQ_SUMMARY_MODEL", DEFAULT_SUMMARY_MODEL)
     fallback_models = _env_list("GROQ_SUMMARY_FALLBACK_MODELS", DEFAULT_SUMMARY_FALLBACK_MODELS)
     tickers = state.get("tickers") or [state["ticker"]]
+    rag_context = retrieve_context(
+        query=f"{state['user_query']} {' '.join(tickers)}",
+        filters={},
+    )
     prompt = build_summary_prompt(
         user_query=state["user_query"],
         ticker=", ".join(tickers),
@@ -415,6 +423,7 @@ def summarizer_agent(state: AgentState) -> AgentState:
         fundamental_analysis=state["fundamental_analysis"],
         news_analysis=state["news_analysis"],
         language=language,
+        rag_context=rag_context,
     )
     try:
         analysis = _invoke_text(
@@ -481,6 +490,40 @@ def follow_up_agent(state: AgentState) -> AgentState:
             state=state,
         ),
         "cached_analysis": cached_analysis,
+    }
+
+
+def product_knowledge_agent(state: AgentState) -> AgentState:
+    language = detect_language(state["user_query"], state.get("language"))
+    rag_context = retrieve_context(
+        query=f"product overview project architecture setup RAG portfolio builder {state['user_query']}",
+        filters={"doc_type": "product_overview"},
+    )
+    if not rag_context:
+        rag_context = retrieve_context(
+            query=f"product project architecture setup RAG portfolio builder {state['user_query']}",
+        )
+    prompt = build_product_knowledge_prompt(
+        user_query=state["user_query"],
+        rag_context=rag_context,
+        language=language,
+    )
+    analysis = _invoke_text(
+        prompt,
+        stream_to_ui=True,
+        agent_name="product_knowledge_agent",
+        state=state,
+    )
+    next_state = {
+        **state,
+        "cache_type": "product_knowledge",
+        "language": language,
+        "analysis": analysis,
+    }
+    return {
+        "language": language,
+        "analysis": analysis,
+        "cached_analysis": build_analysis_cache(next_state),
     }
 
 
@@ -560,6 +603,14 @@ def portfolio_builder_agent(state: AgentState) -> AgentState:
         preferences=portfolio_result["preferences"],
         portfolio_result=portfolio_result,
         language=language,
+        rag_context=retrieve_context(
+            query=(
+                f"portfolio methodology {portfolio_result['preferences'].get('style')} "
+                f"{portfolio_result['preferences'].get('risk')} "
+                f"{portfolio_result['preferences'].get('horizon')} "
+                f"{' '.join(portfolio_result['preferences'].get('overweight_sectors') or [])}"
+            ),
+        ),
     )
     summary_model = _env("GROQ_PORTFOLIO_SUMMARY_MODEL", DEFAULT_PORTFOLIO_SUMMARY_MODEL)
     fallback_models = _env_list("GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS", DEFAULT_SUMMARY_FALLBACK_MODELS)
@@ -622,6 +673,7 @@ def build_graph():
     graph.add_node("news_agent", news_agent)
     graph.add_node("summarizer_agent", summarizer_agent)
     graph.add_node("follow_up_agent", follow_up_agent)
+    graph.add_node("product_knowledge_agent", product_knowledge_agent)
     graph.add_node("portfolio_builder_agent", portfolio_builder_agent)
 
     graph.set_entry_point("validate_intent")
@@ -632,6 +684,7 @@ def build_graph():
             "new_analysis": "fetch_data",
             "follow_up": "follow_up_agent",
             "portfolio_builder": "portfolio_builder_agent",
+            "product_knowledge": "product_knowledge_agent",
             "end": END,
         },
     )
@@ -652,6 +705,7 @@ def build_graph():
     )
     graph.add_edge("summarizer_agent", END)
     graph.add_edge("follow_up_agent", END)
+    graph.add_edge("product_knowledge_agent", END)
     graph.add_edge("portfolio_builder_agent", END)
 
     return graph.compile()

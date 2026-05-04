@@ -87,6 +87,7 @@ Classify the request, extract all stock tickers, and detect the user's language.
 
 Rules:
 - If the user message contains "PORTFOLIO_BUILDER_REQUEST", set route to "portfolio_builder".
+- If the user asks about this app/project/product, its architecture, setup, RAG, Portfolio Builder implementation, deployment, environment variables, or how it works, set route to "product_knowledge".
 - If the user asks about a new company or ticker, set route to "new_analysis".
 - If the user compares multiple companies or tickers, include every requested ticker in tickers.
 - If the user asks a follow-up about the cached analysis, set route to "follow_up".
@@ -103,7 +104,7 @@ Rules:
 
 JSON schema:
 {{
-  "route": "new_analysis | follow_up | portfolio_builder | unknown",
+  "route": "new_analysis | follow_up | portfolio_builder | product_knowledge | unknown",
   "ticker": "UPPERCASE_TICKER_OR_EMPTY",
   "tickers": ["UPPERCASE_TICKER"],
   "language": "DETECTED_LANGUAGE_NAME",
@@ -121,6 +122,26 @@ Use only this price dataset:
 
 Return a concise technical view covering trend, support/resistance, RSI, volume, volatility, and actionable levels.
 Be specific and avoid generic market commentary.
+"""
+
+
+def build_product_knowledge_prompt(
+    user_query: str,
+    rag_context: str,
+    language: str,
+) -> str:
+    return f"""You are a product knowledge agent for the Stock Analyst Agent project.
+{_language_rule(language)}
+
+User question:
+{user_query}
+
+Retrieved product/RAG context:
+{rag_context or "No retrieved product context."}
+
+Answer using the retrieved product context. Cover concrete files, modules, setup steps, environment variables, and workflow details when relevant.
+If the retrieved context is missing or insufficient, say that the product knowledge base does not contain enough information yet and suggest what document should be added.
+Do not answer as a stock analyst and do not provide market analysis unless the question explicitly asks how the product handles such analysis.
 """
 
 
@@ -194,6 +215,7 @@ def build_portfolio_summary_prompt(
     preferences: dict,
     portfolio_result: dict,
     language: str,
+    rag_context: str = "",
 ) -> str:
     return f"""You are the lead portfolio analyst for a stock and ETF assistant.
 {_language_rule(language)}
@@ -207,6 +229,9 @@ Portfolio preferences:
 Deterministic portfolio builder result:
 {_json(portfolio_result)}
 
+Retrieved methodology/company context:
+{rag_context or "No retrieved context."}
+
 Write a polished markdown response. Do not output JSON.
 Required:
 - Title.
@@ -217,6 +242,7 @@ Required:
 - Clear informational/not-financial-advice disclaimer.
 
 Do not invent prices or share counts. Use only the provided allocation dollars and percentages.
+Use retrieved context only as methodology or company background. Do not override calculated tickers, weights, scores, or allocations.
 """
 
 
@@ -252,6 +278,7 @@ def build_summary_prompt(
     fundamental_analysis: str,
     news_analysis: str,
     language: str,
+    rag_context: str = "",
 ) -> str:
     return f"""You are the lead portfolio analyst.
 {_language_rule(language)}
@@ -271,6 +298,9 @@ Fundamental agent output:
 News agent output:
 {news_analysis}
 
+Retrieved knowledge base context:
+{rag_context or "No retrieved context."}
+
 Synthesize the three analyses into a direct answer to the user's request.
 If the request contains multiple tickers, compare them directly and make clear which risks, strengths, and conclusions belong to each ticker.
 
@@ -278,6 +308,7 @@ Required sections:
 {_summary_sections(language)}
 
 Be specific, practical, and do not repeat the agents verbatim.
+Use retrieved context as background only. Do not invent facts beyond the provided datasets, agent outputs, news, or retrieved snippets.
 Do not offer to run a fresh analysis. This response is already the current analysis.
 """
 

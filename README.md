@@ -33,6 +33,8 @@ Live demo: [stock-analyst-agent-production.up.railway.app](https://stock-analyst
 - Local JSONL agent run logging for prompt/output inspection.
 - Configurable Groq model routing with summarizer fallback models.
 - Localized Portfolio Builder UI in English, German, Ukrainian, Russian, and Spanish.
+- Optional RAG knowledge base with Qdrant Cloud and Gemini Embedding.
+- Product knowledge agent that answers project/setup/architecture questions from RAG docs.
 - Educational disclaimer for generated portfolio allocations.
 
 ---
@@ -132,6 +134,7 @@ Classifies the request as:
 
 - `new_analysis`
 - `follow_up`
+- `product_knowledge`
 - `unknown`
 
 It also detects the output language and extracts all requested tickers. A deterministic ticker resolver is used as a guardrail so obvious tickers and company names are not missed if the LLM returns incomplete JSON.
@@ -176,6 +179,10 @@ Combines the three specialist outputs into a structured investment answer. For c
 
 Uses the cached analysis and recent conversation context to answer follow-up questions without rerunning the full workflow unless the user asks about a new ticker or company.
 
+### Product Knowledge Agent
+
+Answers questions about the project itself using RAG context from product documentation. It is intended for questions about architecture, setup, Portfolio Builder implementation, RAG configuration, Railway variables, deployment, and integration details.
+
 ### Portfolio Builder
 
 Builds a markdown portfolio proposal from the Streamlit Portfolio Builder UI, not from normal chat messages. Users can either walk through a one-question-at-a-time guided quiz or open the full form. The first quiz step selects the UI/output language: English, German, Ukrainian, Russian, or Spanish.
@@ -183,6 +190,34 @@ Builds a markdown portfolio proposal from the Streamlit Portfolio Builder UI, no
 The builder asks for investment amount, number of holdings, risk level, horizon, style, ETF preference, sector tilts, sectors to avoid, and cash buffer. It loads S&P 500 and Nasdaq 100 constituents from external sources when available, adds a small ETF universe, falls back to a local large-cap list if needed, scores candidates deterministically, and constructs weights locally.
 
 The LLM does not choose tickers or weights. It can optionally polish the final portfolio explanation when `GROQ_PORTFOLIO_USE_LLM_SUMMARY=true`; otherwise the app returns a local markdown summary. If Groq hits a token/rate limit, the portfolio flow falls back to local markdown instead of failing. The response is informational only and not financial advice.
+
+### RAG Knowledge Base
+
+The app can optionally retrieve product, methodology, sector, disclaimer, and company notes from a Qdrant Cloud vector collection. Embeddings are generated with Google Gemini Embedding (`gemini-embedding-001`). RAG context is used only as background for explanations; it does not change Portfolio Builder scoring, tickers, weights, or allocations.
+
+Local documents live in:
+
+```text
+rag/docs/
+|-- product_overview.md
+|-- portfolio_methodology.md
+|-- style_explanations.md
+|-- sector_notes.md
+|-- disclaimer.md
+|-- companies/
+```
+
+Ingest them into Qdrant:
+
+```bash
+python -m rag.ingest
+```
+
+Use `--dry-run` to count chunks without writing:
+
+```bash
+python -m rag.ingest --dry-run
+```
 
 ---
 
@@ -218,11 +253,21 @@ GROQ_SUMMARY_FALLBACK_MODELS=llama-3.3-70b-versatile,meta-llama/llama-4-scout-17
 GROQ_PORTFOLIO_USE_LLM_SUMMARY=false
 GROQ_PORTFOLIO_SUMMARY_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS=llama-3.3-70b-versatile,openai/gpt-oss-120b
+RAG_ENABLED=false
+RAG_TOP_K=4
+QDRANT_URL=https://your-qdrant-cluster-url
+QDRANT_API_KEY=your-qdrant-api-key
+QDRANT_COLLECTION=stock_analyst_knowledge
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+GEMINI_EMBEDDING_DIMENSIONS=768
 ```
 
 Fallback behavior is currently used for the summarizer. If the primary summary model hits a rate limit, the workflow retries the fallback chain.
 
 Portfolio Builder has separate summary routing because portfolio prompts can otherwise consume Groq token-per-minute limits quickly. The default recommended setting is `GROQ_PORTFOLIO_USE_LLM_SUMMARY=false` for stable local markdown output. Set it to `true` when you want LLM-polished explanations.
+
+RAG is disabled by default. Set `RAG_ENABLED=true` after creating a Qdrant Cloud collection and ingesting local docs.
 
 ---
 
@@ -304,6 +349,14 @@ cp .env.example .env
 | `GROQ_PORTFOLIO_USE_LLM_SUMMARY` | No | Enable LLM-polished Portfolio Builder summaries. Defaults to local markdown when false |
 | `GROQ_PORTFOLIO_SUMMARY_MODEL` | No | Primary model for optional Portfolio Builder summaries |
 | `GROQ_PORTFOLIO_SUMMARY_FALLBACK_MODELS` | No | Comma-separated fallback models for optional Portfolio Builder summaries |
+| `RAG_ENABLED` | No | Enable retrieval from the Qdrant knowledge base |
+| `RAG_TOP_K` | No | Number of RAG snippets to retrieve. Default: `4` |
+| `QDRANT_URL` | No | Qdrant Cloud cluster URL |
+| `QDRANT_API_KEY` | No | Qdrant Cloud API key |
+| `QDRANT_COLLECTION` | No | Qdrant collection name. Default: `stock_analyst_knowledge` |
+| `GEMINI_API_KEY` | No | Google Gemini API key for embeddings |
+| `GEMINI_EMBEDDING_MODEL` | No | Gemini embedding model. Default: `gemini-embedding-001` |
+| `GEMINI_EMBEDDING_DIMENSIONS` | No | Embedding dimensions. Default: `768` |
 | `AGENT_LOG_DIR` | No | Directory for local JSONL logs. Default: `logs` |
 | `LANGFUSE_PUBLIC_KEY` | No | Optional observability key |
 | `LANGFUSE_SECRET_KEY` | No | Optional observability key |
@@ -330,6 +383,13 @@ stock-analyst-agent/
 |
 |-- prompts/
 |   |-- analysis.py            # Prompt builders for all agents
+|
+|-- rag/
+|   |-- docs/                  # Local methodology/company knowledge docs
+|   |-- embeddings.py          # Gemini Embedding REST client
+|   |-- ingest.py              # Ingest docs into Qdrant
+|   |-- qdrant_store.py        # Qdrant REST client
+|   |-- retriever.py           # RAG retrieval helper
 |
 |-- tools/
 |   |-- price_data.py          # OHLCV and technical indicators
