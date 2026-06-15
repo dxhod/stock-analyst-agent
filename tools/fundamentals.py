@@ -2,9 +2,13 @@
 Tool: fundamental data via yfinance
 """
 
+import os
+
 import yfinance as yf
 from curl_cffi import requests as curl_requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from . import finnhub
 
 yf.set_tz_cache_location("/tmp")
 session = curl_requests.Session(impersonate="chrome")
@@ -38,7 +42,7 @@ def _fmt_large(value) -> str | None:
 
 
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
-def fetch_fundamentals(ticker: str) -> dict:
+def _fetch_yahoo_fundamentals(ticker: str) -> dict:
     tk = yf.Ticker(ticker.upper(), session=session)
     info = tk.info
 
@@ -93,4 +97,14 @@ def fetch_fundamentals(ticker: str) -> dict:
         "analyst_recommendation": info.get("recommendationKey"),
         "analyst_count": info.get("numberOfAnalystOpinions"),
         "description": (info.get("longBusinessSummary") or "")[:600],
+        "data_provider": "yahoo",
     }
+
+
+def fetch_fundamentals(ticker: str) -> dict:
+    if os.getenv("MARKET_DATA_PROVIDER", "").strip().lower() == "finnhub":
+        return finnhub.fetch_fundamentals(ticker)
+    try:
+        return _fetch_yahoo_fundamentals(ticker)
+    except Exception:
+        return finnhub.fetch_fundamentals(ticker)

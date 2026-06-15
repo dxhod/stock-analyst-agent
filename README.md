@@ -191,6 +191,22 @@ The builder asks for investment amount, number of holdings, risk level, horizon,
 
 The LLM does not choose tickers or weights. It can optionally polish the final portfolio explanation when `GROQ_PORTFOLIO_USE_LLM_SUMMARY=true`; otherwise the app returns a local markdown summary. If Groq hits a token/rate limit, the portfolio flow falls back to local markdown instead of failing. The response is informational only and not financial advice.
 
+### Market Data Fallback
+
+Yahoo Finance via `yfinance` is the default market data provider for prices, fundamentals, and news. Because Yahoo endpoints are unofficial and can be unreliable from cloud hosts, the app can fall back to Finnhub when Yahoo does not return usable data.
+
+Set `FINNHUB_API_KEY` to enable fallback. Keep `MARKET_DATA_PROVIDER=yahoo` for normal operation: Yahoo is tried first, then Finnhub is used only after a Yahoo failure. Set `MARKET_DATA_PROVIDER=finnhub` only when you want to bypass Yahoo and test Finnhub directly.
+
+Finnhub free-tier keys may not include historical candles, price targets, or recommendation endpoints. For that reason, the default fallback mode is conservative:
+
+```env
+MARKET_DATA_PROVIDER=yahoo
+FINNHUB_USE_CANDLES=false
+FINNHUB_USE_ANALYST_ENDPOINTS=false
+```
+
+With candles disabled, Finnhub price fallback uses quote and 52-week metric data, so technical fields such as SMA, RSI, ATR, and volume may be unavailable. Portfolio Builder also skips ETF fundamentals and scores candidates in parallel to keep fallback mode responsive.
+
 ### RAG Knowledge Base
 
 The app can optionally retrieve product, methodology, sector, disclaimer, and company notes from a Qdrant Cloud vector collection. Embeddings are generated with Google Gemini Embedding (`gemini-embedding-001`). RAG context is used only as background for explanations; it does not change Portfolio Builder scoring, tickers, weights, or allocations.
@@ -302,7 +318,7 @@ The `logs/` folder is ignored by git.
 |-------|------------|
 | Agent workflow | LangGraph |
 | LLM provider | Groq |
-| Market data | yfinance |
+| Market data | yfinance with Finnhub fallback |
 | UI | Streamlit |
 | Environment config | python-dotenv |
 | Logging | Local JSONL |
@@ -342,6 +358,10 @@ cp .env.example .env
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GROQ_API_KEY` | Yes | Groq API key |
+| `MARKET_DATA_PROVIDER` | No | Set to `finnhub` to bypass Yahoo/yfinance and use Finnhub directly. Defaults to Yahoo with Finnhub fallback |
+| `FINNHUB_API_KEY` | No | Finnhub API key used as a fallback when Yahoo/yfinance does not return usable market data |
+| `FINNHUB_USE_CANDLES` | No | Set to `true` only when your Finnhub plan supports historical candle data. Defaults to quote-only fallback |
+| `FINNHUB_USE_ANALYST_ENDPOINTS` | No | Set to `true` only when your Finnhub plan supports price target and recommendation endpoints. Defaults to disabled |
 | `GROQ_MODEL` | No | Default model for specialist and follow-up agents |
 | `GROQ_INTENT_MODEL` | No | Model used by the intent validator |
 | `GROQ_SUMMARY_MODEL` | No | Primary model used by the summarizer |

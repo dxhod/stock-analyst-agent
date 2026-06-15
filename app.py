@@ -1023,6 +1023,7 @@ if query:
     stream_callback.finish(state["analysis"])
     st.session_state.conversation.append({"role": "assistant", "content": state["analysis"]})
     st.session_state.conversation_updated_at = now_utc()
+    st.rerun()
 
 elif run:
     st.warning("Ask a question or enter a ticker/company name first.")

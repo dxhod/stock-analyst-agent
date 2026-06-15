@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 
@@ -222,7 +223,7 @@ def _select_candidates(universe: list[Candidate], preferences: dict[str, Any]) -
 def _score_candidate(candidate: Candidate, preferences: dict[str, Any]) -> dict[str, Any] | None:
     try:
         price = fetch_price_data(candidate.ticker)
-        fundamentals = fetch_fundamentals(candidate.ticker)
+        fundamentals = {} if candidate.type == "ETF" else fetch_fundamentals(candidate.ticker)
     except Exception:
         return None
 
@@ -423,10 +424,12 @@ def build_portfolio(preferences: dict[str, Any]) -> dict[str, Any]:
     candidates = _select_candidates(universe, preferences)
 
     scored = []
-    for candidate in candidates:
-        result = _score_candidate(candidate, preferences)
-        if result:
-            scored.append(result)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(_score_candidate, candidate, preferences) for candidate in candidates]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                scored.append(result)
 
     scored.sort(key=lambda item: item["score"] or 0, reverse=True)
     if not scored:

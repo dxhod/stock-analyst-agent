@@ -2,10 +2,14 @@
 Tool: price & OHLCV data via yfinance
 """
 
+import os
+
 import yfinance as yf
 from curl_cffi import requests as curl_requests
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from . import finnhub
 
 yf.set_tz_cache_location("/tmp")
 session = curl_requests.Session(impersonate="chrome")
@@ -36,7 +40,7 @@ def _atr(hist: pd.DataFrame, period: int = 14) -> float | None:
 
 
 @retry(stop=stop_after_attempt(5), wait=wait_exponential(min=2, max=10))
-def fetch_price_data(ticker: str, period: str = "6mo") -> dict:
+def _fetch_yahoo_price_data(ticker: str, period: str = "6mo") -> dict:
     tk = yf.Ticker(ticker.upper(), session=session)
     hist = tk.history(period=period)
 
@@ -84,4 +88,14 @@ def fetch_price_data(ticker: str, period: str = "6mo") -> dict:
         "relative_volume": rel_volume,
         "data_period": period,
         "bars_count": len(hist),
+        "data_provider": "yahoo",
     }
+
+
+def fetch_price_data(ticker: str, period: str = "6mo") -> dict:
+    if os.getenv("MARKET_DATA_PROVIDER", "").strip().lower() == "finnhub":
+        return finnhub.fetch_price_data(ticker, period)
+    try:
+        return _fetch_yahoo_price_data(ticker, period)
+    except Exception:
+        return finnhub.fetch_price_data(ticker, period)
